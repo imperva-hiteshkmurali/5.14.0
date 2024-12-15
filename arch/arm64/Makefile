@@ -150,25 +150,22 @@ libs-$(CONFIG_EFI_STUB) += $(objtree)/drivers/firmware/efi/libstub/lib.a
 
 # Default target when executing plain make
 boot		:= arch/arm64/boot
-
-ifeq ($(CONFIG_EFI_ZBOOT),)
 KBUILD_IMAGE	:= $(boot)/Image.gz
-else
-KBUILD_IMAGE	:= $(boot)/vmlinuz.efi
-endif
 
-all:	$(notdir $(KBUILD_IMAGE))
+all:	Image.gz
 
-vmlinuz.efi: Image
-Image vmlinuz.efi: vmlinux
+
+Image: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
 
 Image.%: Image
 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
 
-install: KBUILD_IMAGE := $(boot)/Image
+install: install-image := Image
+zinstall: install-image := Image.gz
 install zinstall:
-	$(call cmd,install)
+	$(CONFIG_SHELL) $(srctree)/$(boot)/install.sh $(KERNELRELEASE) \
+	$(boot)/$(install-image) System.map "$(INSTALL_PATH)"
 
 PHONY += vdso_install
 vdso_install:

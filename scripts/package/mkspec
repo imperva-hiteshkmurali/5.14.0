@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 #
 #	Output a simple RPM spec file.
 #	This version assumes a minimum of RPM 4.0.3.

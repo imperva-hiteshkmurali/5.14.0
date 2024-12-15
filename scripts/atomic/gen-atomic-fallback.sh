@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 
 ATOMICDIR=$(dirname $0)
@@ -223,10 +223,6 @@ done
 
 for cmpxchg in "cmpxchg" "cmpxchg64"; do
 	gen_try_cmpxchg_fallbacks "${cmpxchg}"
-done
-
-for cmpxchg in "cmpxchg_local" "cmpxchg64_local"; do
-	gen_try_cmpxchg_fallback "${cmpxchg}" ""
 done
 
 grep '^[a-z]' "$1" | while read name meta args; do

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 # (c) 2017, Jonathan Corbet <corbet@lwn.net>
 #           sayli karnik <karniksayli1995@gmail.com>
 #
