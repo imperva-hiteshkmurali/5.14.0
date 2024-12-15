@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 # ----------------------------------------------------------------------
 # extract-ikconfig - Extract the .config file from a kernel image
 #

@@ -13,7 +13,7 @@
 
 import gdb
 
-from linux import cpus, utils, lists, constants
+from linux import cpus, utils, lists
 
 
 module_type = utils.CachedType("struct module")
@@ -73,17 +73,11 @@ class LxLsmod(gdb.Command):
                 "        " if utils.get_long_type().sizeof == 8 else ""))
 
         for module in module_list():
-            text = module['mem'][constants.LX_MOD_TEXT]
-            text_addr = str(text['base']).split()[0]
-            total_size = 0
-
-            for i in range(constants.LX_MOD_TEXT, constants.LX_MOD_RO_AFTER_INIT + 1):
-                total_size += module['mem'][i]['size']
-
+            layout = module['core_layout']
             gdb.write("{address} {name:<19} {size:>8}  {ref}".format(
-                address=text_addr,
+                address=str(layout['base']).split()[0],
                 name=module['name'].string(),
-                size=str(total_size),
+                size=str(layout['size']),
                 ref=str(module['refcnt']['counter'] - 1)))
 
             t = self._module_use_type.get_type().pointer()

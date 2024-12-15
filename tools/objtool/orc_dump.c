@@ -4,6 +4,7 @@
  */
 
 #include <unistd.h>
+#include <linux/objtool_types.h>
 #include <asm/orc_types.h>
 #include <objtool/objtool.h>
 #include <objtool/warn.h>
@@ -38,11 +39,11 @@ static const char *reg_name(unsigned int reg)
 static const char *orc_type_name(unsigned int type)
 {
 	switch (type) {
-	case ORC_TYPE_CALL:
+	case UNWIND_HINT_TYPE_CALL:
 		return "call";
-	case ORC_TYPE_REGS:
+	case UNWIND_HINT_TYPE_REGS:
 		return "regs";
-	case ORC_TYPE_REGS_PARTIAL:
+	case UNWIND_HINT_TYPE_REGS_PARTIAL:
 		return "regs (partial)";
 	default:
 		return "?";
@@ -203,8 +204,8 @@ int orc_dump(const char *_objname)
 
 		print_reg(orc[i].bp_reg, bswap_if_needed(orc[i].bp_offset));
 
-		printf(" type:%s signal:%d end:%d\n",
-		       orc_type_name(orc[i].type), orc[i].signal, orc[i].end);
+		printf(" type:%s end:%d\n",
+		       orc_type_name(orc[i].type), orc[i].end);
 	}
 
 	elf_end(elf);

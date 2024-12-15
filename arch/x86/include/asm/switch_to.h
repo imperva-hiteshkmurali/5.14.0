@@ -75,13 +75,13 @@ static inline void update_task_stack(struct task_struct *task)
 }
 
 static inline void kthread_frame_init(struct inactive_task_frame *frame,
-				      int (*fun)(void *), void *arg)
+				      unsigned long fun, unsigned long arg)
 {
-	frame->bx = (unsigned long)fun;
+	frame->bx = fun;
 #ifdef CONFIG_X86_32
-	frame->di = (unsigned long)arg;
+	frame->di = arg;
 #else
-	frame->r12 = (unsigned long)arg;
+	frame->r12 = arg;
 #endif
 }
 

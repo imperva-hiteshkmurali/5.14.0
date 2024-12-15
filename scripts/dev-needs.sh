@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/usr/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # Copyright (c) 2020, Google LLC. All rights reserved.
 # Author: Saravana Kannan <saravanak@google.com>

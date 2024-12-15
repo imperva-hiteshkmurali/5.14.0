@@ -471,8 +471,7 @@ void netlbl_bitmap_setbit(unsigned char *bitmap, u32 bit, u8 state);
 int netlbl_enabled(void);
 int netlbl_sock_setattr(struct sock *sk,
 			u16 family,
-			const struct netlbl_lsm_secattr *secattr,
-			bool sk_locked);
+			const struct netlbl_lsm_secattr *secattr);
 void netlbl_sock_delattr(struct sock *sk);
 int netlbl_sock_getattr(struct sock *sk,
 			struct netlbl_lsm_secattr *secattr);
@@ -489,7 +488,6 @@ int netlbl_skbuff_getattr(const struct sk_buff *skb,
 			  u16 family,
 			  struct netlbl_lsm_secattr *secattr);
 void netlbl_skbuff_err(struct sk_buff *skb, u16 family, int error, int gateway);
-bool netlbl_sk_lock_check(struct sock *sk);
 
 /*
  * LSM label mapping cache operations
@@ -617,8 +615,7 @@ static inline int netlbl_enabled(void)
 }
 static inline int netlbl_sock_setattr(struct sock *sk,
 				      u16 family,
-				      const struct netlbl_lsm_secattr *secattr,
-				      bool sk_locked)
+				      const struct netlbl_lsm_secattr *secattr)
 {
 	return -ENOSYS;
 }
@@ -676,11 +673,6 @@ static inline struct audit_buffer *netlbl_audit_start(int type,
 						struct netlbl_audit *audit_info)
 {
 	return NULL;
-}
-
-static inline bool netlbl_sk_lock_check(struct sock *sk)
-{
-	return true;
 }
 #endif /* CONFIG_NETLABEL */
 

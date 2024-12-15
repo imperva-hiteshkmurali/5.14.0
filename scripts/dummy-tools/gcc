@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # Staring v4.18, Kconfig evaluates compiler capabilities, and hides CONFIG
