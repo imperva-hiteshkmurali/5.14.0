@@ -1,4 +1,4 @@
-#!/bin/sh -eu
+#!/usr/bin/sh -eu
 # SPDX-License-Identifier: GPL-2.0
 
 tmp_file=$(mktemp)

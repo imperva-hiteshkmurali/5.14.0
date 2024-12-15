@@ -672,8 +672,7 @@ extern bool current_is_single_threaded(void);
 	while ((t = next_thread(t)) != g)
 
 #define __for_each_thread(signal, t)	\
-	list_for_each_entry_rcu(t, &(signal)->thread_head, thread_node, \
-		lockdep_is_held(&tasklist_lock))
+	list_for_each_entry_rcu(t, &(signal)->thread_head, thread_node)
 
 #define for_each_thread(p, t)		\
 	__for_each_thread((p)->signal, t)
@@ -732,20 +731,10 @@ bool same_thread_group(struct task_struct *p1, struct task_struct *p2)
 	return p1->signal == p2->signal;
 }
 
-/*
- * returns NULL if p is the last thread in the thread group
- */
-static inline struct task_struct *__next_thread(struct task_struct *p)
+static inline struct task_struct *next_thread(const struct task_struct *p)
 {
-	return list_next_or_null_rcu(&p->signal->thread_head,
-					&p->thread_node,
-					struct task_struct,
-					thread_node);
-}
-
-static inline struct task_struct *next_thread(struct task_struct *p)
-{
-	return __next_thread(p) ?: p->group_leader;
+	return list_entry_rcu(p->thread_group.next,
+			      struct task_struct, thread_group);
 }
 
 static inline int thread_group_empty(struct task_struct *p)

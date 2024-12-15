@@ -9,7 +9,6 @@
  * See Documentation/core-api/xarray.rst for how to use the XArray.
  */
 
-#include <linux/bitmap.h>
 #include <linux/bug.h>
 #include <linux/compiler.h>
 #include <linux/gfp.h>

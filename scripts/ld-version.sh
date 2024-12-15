@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 #
 # Print the linker name and its version in a 5 or 6-digit form.

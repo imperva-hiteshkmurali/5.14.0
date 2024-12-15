@@ -3,7 +3,7 @@
  *
  * Name: actbl1.h - Additional ACPI table definitions
  *
- * Copyright (C) 2000 - 2023, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  *
  *****************************************************************************/
 
@@ -855,10 +855,7 @@ struct acpi_dmar_andd {
 	struct acpi_dmar_header header;
 	u8 reserved[3];
 	u8 device_number;
-	union {
-		char __pad;
-		 ACPI_FLEX_ARRAY(char, device_name);
-	};
+	char device_name[1];
 };
 
 /* 5: SOC Integrated Address Translation Cache Reporting Structure */
@@ -901,7 +898,7 @@ struct acpi_table_drtm {
 
 struct acpi_drtm_vtable_list {
 	u32 validated_table_count;
-	u64 validated_tables[];
+	u64 validated_tables[1];
 };
 
 /* 2) Resources List (of Resource Descriptors) */
@@ -916,7 +913,7 @@ struct acpi_drtm_resource {
 
 struct acpi_drtm_resource_list {
 	u32 resource_count;
-	struct acpi_drtm_resource resources[];
+	struct acpi_drtm_resource resources[1];
 };
 
 /* 3) Platform-specific Identifiers List */
@@ -939,7 +936,7 @@ struct acpi_table_ecdt {
 	struct acpi_generic_address data;	/* Address of EC data register */
 	u32 uid;		/* Unique ID - must be same as the EC _UID method */
 	u8 gpe;			/* The GPE for the EC */
-	u8 id[];		/* Full namepath of the EC in the ACPI namespace */
+	u8 id[1];		/* Full namepath of the EC in the ACPI namespace */
 };
 
 /*******************************************************************************

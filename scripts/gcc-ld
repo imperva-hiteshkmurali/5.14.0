@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # run gcc with ld options
 # used as a wrapper to execute link time optimizations

@@ -17,7 +17,6 @@
 
 #include <linux/crash_core.h>
 #include <asm/io.h>
-#include <linux/range.h>
 
 #include <uapi/linux/kexec.h>
 #include <linux/verification.h>
@@ -233,10 +232,14 @@ static inline int arch_kexec_locate_mem_hole(struct kexec_buf *kbuf)
 /* Alignment required for elf header segment */
 #define ELF_CORE_HEADER_ALIGN   4096
 
+struct crash_mem_range {
+	u64 start, end;
+};
+
 struct crash_mem {
 	unsigned int max_nr_ranges;
 	unsigned int nr_ranges;
-	struct range ranges[];
+	struct crash_mem_range ranges[];
 };
 
 extern int crash_exclude_mem_range(struct crash_mem *mem,
@@ -395,8 +398,7 @@ extern int kimage_crash_copy_vmcoreinfo(struct kimage *image);
 
 extern struct kimage *kexec_image;
 extern struct kimage *kexec_crash_image;
-
-bool kexec_load_permitted(int kexec_image_type);
+extern int kexec_load_disabled;
 
 #ifndef kexec_flush_icache_page
 #define kexec_flush_icache_page(page)
@@ -411,7 +413,7 @@ bool kexec_load_permitted(int kexec_image_type);
 
 /* List of defined/legal kexec file flags */
 #define KEXEC_FILE_FLAGS	(KEXEC_FILE_UNLOAD | KEXEC_FILE_ON_CRASH | \
-				 KEXEC_FILE_NO_INITRAMFS | KEXEC_FILE_DEBUG)
+				 KEXEC_FILE_NO_INITRAMFS)
 
 /* flag to track if kexec reboot is in progress */
 extern bool kexec_in_progress;
@@ -488,19 +490,6 @@ static inline int arch_kexec_post_alloc_pages(void *vaddr, unsigned int pages, g
 
 #ifndef arch_kexec_pre_free_pages
 static inline void arch_kexec_pre_free_pages(void *vaddr, unsigned int pages) { }
-#endif
-
-extern bool kexec_file_dbg_print;
-
-#define kexec_dprintk(fmt, arg...) \
-        do { if (kexec_file_dbg_print) pr_info(fmt, ##arg); } while (0)
-
-#ifndef crash_hotplug_cpu_support
-static inline int crash_hotplug_cpu_support(void) { return 0; }
-#endif
-
-#ifndef crash_hotplug_memory_support
-static inline int crash_hotplug_memory_support(void) { return 0; }
 #endif
 
 #else /* !CONFIG_KEXEC_CORE */

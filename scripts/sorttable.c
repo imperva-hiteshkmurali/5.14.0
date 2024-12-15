@@ -30,8 +30,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
-#include <pthread.h>
 
 #include <tools/be_byteshift.h>
 #include <tools/le_byteshift.h>
@@ -54,10 +52,6 @@
 
 #ifndef EM_ARCV2
 #define EM_ARCV2	195
-#endif
-
-#ifndef EM_LOONGARCH
-#define EM_LOONGARCH	258
 #endif
 
 static uint32_t (*r)(const uint32_t *);
@@ -312,7 +306,6 @@ static int do_file(char const *const fname, void *addr)
 	case EM_ARCOMPACT:
 	case EM_ARCV2:
 	case EM_ARM:
-	case EM_LOONGARCH:
 	case EM_MICROBLAZE:
 	case EM_MIPS:
 	case EM_XTENSA:

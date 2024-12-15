@@ -26,24 +26,7 @@ static int init_orc_entry(struct orc_entry *orc, struct cfi_state *cfi,
 		return 0;
 	}
 
-	switch (cfi->type) {
-	case UNWIND_HINT_TYPE_CALL:
-		orc->type = ORC_TYPE_CALL;
-		break;
-	case UNWIND_HINT_TYPE_REGS:
-		orc->type = ORC_TYPE_REGS;
-		break;
-	case UNWIND_HINT_TYPE_REGS_PARTIAL:
-		orc->type = ORC_TYPE_REGS_PARTIAL;
-		break;
-	default:
-		WARN_FUNC("unknown unwind hint type %d",
-			  insn->sec, insn->offset, cfi->type);
-		return -1;
-	}
-
 	orc->end = cfi->end;
-	orc->signal = cfi->signal;
 
 	if (cfi->cfa.base == CFI_UNDEFINED) {
 		orc->sp_reg = ORC_REG_UNDEFINED;
@@ -99,6 +82,7 @@ static int init_orc_entry(struct orc_entry *orc, struct cfi_state *cfi,
 
 	orc->sp_offset = cfi->cfa.offset;
 	orc->bp_offset = bp->offset;
+	orc->type = cfi->type;
 
 	return 0;
 }
@@ -166,7 +150,7 @@ int orc_create(struct objtool_file *file)
 	struct orc_entry null = {
 		.sp_reg  = ORC_REG_UNDEFINED,
 		.bp_reg  = ORC_REG_UNDEFINED,
-		.type    = ORC_TYPE_CALL,
+		.type    = UNWIND_HINT_TYPE_CALL,
 	};
 
 	/* Build a deduplicated list of ORC entries: */
