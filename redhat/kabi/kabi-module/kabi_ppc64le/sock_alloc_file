@@ -1,3 +1,2 @@
-#5-
-0x73903e07	sock_alloc_file	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x5f883cfb	sock_alloc_file	vmlinux	EXPORT_SYMBOL	

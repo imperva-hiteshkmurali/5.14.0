@@ -5,10 +5,9 @@
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
-SEC("socket")
+SEC("cgroup/sysctl")
 __description("ARG_PTR_TO_LONG uninitialized")
-__success
-__failure_unpriv __msg_unpriv("invalid indirect read from stack R4 off -16+0 size 8")
+__failure __msg("invalid indirect read from stack R4 off -16+0 size 8")
 __naked void arg_ptr_to_long_uninitialized(void)
 {
 	asm volatile ("					\
@@ -68,7 +67,7 @@ __naked void ptr_to_long_half_uninitialized(void)
 
 SEC("cgroup/sysctl")
 __description("ARG_PTR_TO_LONG misaligned")
-__failure __msg("misaligned stack access off 0+-20+0 size 8")
+__failure __msg("misaligned stack access off (0x0; 0x0)+-20+0 size 8")
 __naked void arg_ptr_to_long_misaligned(void)
 {
 	asm volatile ("					\

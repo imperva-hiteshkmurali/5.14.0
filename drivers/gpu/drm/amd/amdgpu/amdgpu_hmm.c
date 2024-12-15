@@ -129,25 +129,13 @@ static const struct mmu_interval_notifier_ops amdgpu_hmm_hsa_ops = {
  */
 int amdgpu_hmm_register(struct amdgpu_bo *bo, unsigned long addr)
 {
-	int r;
-
 	if (bo->kfd_bo)
-		r = mmu_interval_notifier_insert(&bo->notifier, current->mm,
+		return mmu_interval_notifier_insert(&bo->notifier, current->mm,
 						    addr, amdgpu_bo_size(bo),
 						    &amdgpu_hmm_hsa_ops);
-	else
-		r = mmu_interval_notifier_insert(&bo->notifier, current->mm, addr,
-							amdgpu_bo_size(bo),
-							&amdgpu_hmm_gfx_ops);
-	if (r)
-		/*
-		 * Make sure amdgpu_hmm_unregister() doesn't call
-		 * mmu_interval_notifier_remove() when the notifier isn't properly
-		 * initialized.
-		 */
-		bo->notifier.mm = NULL;
-
-	return r;
+	return mmu_interval_notifier_insert(&bo->notifier, current->mm, addr,
+					    amdgpu_bo_size(bo),
+					    &amdgpu_hmm_gfx_ops);
 }
 
 /**
@@ -202,8 +190,8 @@ int amdgpu_hmm_range_get_pages(struct mmu_interval_notifier *notifier,
 		pr_debug("hmm range: start = 0x%lx, end = 0x%lx",
 			hmm_range->start, hmm_range->end);
 
-		/* Assuming 64MB takes maximum 1 second to fault page address */
-		timeout = max((hmm_range->end - hmm_range->start) >> 26, 1UL);
+		/* Assuming 128MB takes maximum 1 second to fault page address */
+		timeout = max((hmm_range->end - hmm_range->start) >> 27, 1UL);
 		timeout *= HMM_RANGE_DEFAULT_TIMEOUT;
 		timeout = jiffies + msecs_to_jiffies(timeout);
 
@@ -211,7 +199,6 @@ retry:
 		hmm_range->notifier_seq = mmu_interval_read_begin(notifier);
 		r = hmm_range_fault(hmm_range);
 		if (unlikely(r)) {
-			schedule();
 			/*
 			 * FIXME: This timeout should encompass the retry from
 			 * mmu_interval_read_retry() as well.
@@ -225,6 +212,7 @@ retry:
 			break;
 		hmm_range->hmm_pfns += MAX_WALK_BYTE >> PAGE_SHIFT;
 		hmm_range->start = hmm_range->end;
+		schedule();
 	} while (hmm_range->end < end);
 
 	hmm_range->start = start;

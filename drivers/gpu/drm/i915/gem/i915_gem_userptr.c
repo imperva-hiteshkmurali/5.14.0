@@ -42,6 +42,7 @@
 #include "i915_drv.h"
 #include "i915_gem_ioctls.h"
 #include "i915_gem_object.h"
+#include "i915_gem_userptr.h"
 #include "i915_scatterlist.h"
 
 #ifdef CONFIG_MMU_NOTIFIER
@@ -60,7 +61,36 @@ static bool i915_gem_userptr_invalidate(struct mmu_interval_notifier *mni,
 					const struct mmu_notifier_range *range,
 					unsigned long cur_seq)
 {
+	struct drm_i915_gem_object *obj = container_of(mni, struct drm_i915_gem_object, userptr.notifier);
+	struct drm_i915_private *i915 = to_i915(obj->base.dev);
+	long r;
+
+	if (!mmu_notifier_range_blockable(range))
+		return false;
+
+	write_lock(&i915->mm.notifier_lock);
+
 	mmu_interval_set_seq(mni, cur_seq);
+
+	write_unlock(&i915->mm.notifier_lock);
+
+	/*
+	 * We don't wait when the process is exiting. This is valid
+	 * because the object will be cleaned up anyway.
+	 *
+	 * This is also temporarily required as a hack, because we
+	 * cannot currently force non-consistent batch buffers to preempt
+	 * and reschedule by waiting on it, hanging processes on exit.
+	 */
+	if (current->flags & PF_EXITING)
+		return true;
+
+	/* we will unbind on next submission, still have userptr pins */
+	r = dma_resv_wait_timeout(obj->base.resv, DMA_RESV_USAGE_BOOKKEEP, false,
+				  MAX_SCHEDULE_TIMEOUT);
+	if (r <= 0)
+		drm_err(&i915->drm, "(%ld) failed to wait for idle\n", r);
+
 	return true;
 }
 
@@ -349,9 +379,6 @@ i915_gem_userptr_release(struct drm_i915_gem_object *obj)
 {
 	GEM_WARN_ON(obj->userptr.page_ref);
 
-	if (!obj->userptr.notifier.mm)
-		return;
-
 	mmu_interval_notifier_remove(&obj->userptr.notifier);
 	obj->userptr.notifier.mm = NULL;
 }
@@ -400,12 +427,12 @@ static const struct drm_i915_gem_object_ops i915_gem_userptr_ops = {
 static int
 probe_range(struct mm_struct *mm, unsigned long addr, unsigned long len)
 {
-	VMA_ITERATOR(vmi, mm, addr);
+	const unsigned long end = addr + len;
 	struct vm_area_struct *vma;
-	unsigned long end = addr + len;
+	int ret = -EFAULT;
 
 	mmap_read_lock(mm);
-	for_each_vma_range(vmi, vma, end) {
+	for (vma = find_vma(mm, addr); vma; vma = vma->vm_next) {
 		/* Check for holes, note that we also update the addr below */
 		if (vma->vm_start > addr)
 			break;
@@ -413,13 +440,16 @@ probe_range(struct mm_struct *mm, unsigned long addr, unsigned long len)
 		if (vma->vm_flags & (VM_PFNMAP | VM_MIXEDMAP))
 			break;
 
+		if (vma->vm_end >= end) {
+			ret = 0;
+			break;
+		}
+
 		addr = vma->vm_end;
 	}
 	mmap_read_unlock(mm);
 
-	if (vma || addr < end)
-		return -EFAULT;
-	return 0;
+	return ret;
 }
 
 /*
@@ -553,3 +583,15 @@ i915_gem_userptr_ioctl(struct drm_device *dev,
 #endif
 }
 
+int i915_gem_init_userptr(struct drm_i915_private *dev_priv)
+{
+#ifdef CONFIG_MMU_NOTIFIER
+	rwlock_init(&dev_priv->mm.notifier_lock);
+#endif
+
+	return 0;
+}
+
+void i915_gem_cleanup_userptr(struct drm_i915_private *dev_priv)
+{
+}

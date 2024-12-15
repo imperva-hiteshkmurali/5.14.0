@@ -7,7 +7,6 @@
 
 #include "super.h"
 #include "mds_client.h"
-#include "crypto.h"
 
 /*
  * Basic fh
@@ -182,7 +181,6 @@ struct inode *ceph_lookup_inode(struct super_block *sb, u64 ino)
 static struct dentry *__fh_to_dentry(struct super_block *sb, u64 ino)
 {
 	struct inode *inode = __lookup_inode(sb, ino);
-	struct ceph_inode_info *ci = ceph_inode(inode);
 	int err;
 
 	if (IS_ERR(inode))
@@ -194,7 +192,7 @@ static struct dentry *__fh_to_dentry(struct super_block *sb, u64 ino)
 		return ERR_PTR(err);
 	}
 	/* -ESTALE if inode as been unlinked and no file is open */
-	if ((inode->i_nlink == 0) && !__ceph_is_file_opened(ci)) {
+	if ((inode->i_nlink == 0) && (atomic_read(&inode->i_count) == 1)) {
 		iput(inode);
 		return ERR_PTR(-ESTALE);
 	}
@@ -536,9 +534,7 @@ static int ceph_get_name(struct dentry *parent, char *name,
 {
 	struct ceph_mds_client *mdsc;
 	struct ceph_mds_request *req;
-	struct inode *dir = d_inode(parent);
 	struct inode *inode = d_inode(child);
-	struct ceph_mds_reply_info_parsed *rinfo;
 	int err;
 
 	if (ceph_snap(inode) != CEPH_NOSNAP)
@@ -550,47 +546,30 @@ static int ceph_get_name(struct dentry *parent, char *name,
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
-	inode_lock(dir);
+	inode_lock(d_inode(parent));
+
 	req->r_inode = inode;
 	ihold(inode);
 	req->r_ino2 = ceph_vino(d_inode(parent));
-	req->r_parent = dir;
-	ihold(dir);
+	req->r_parent = d_inode(parent);
+	ihold(req->r_parent);
 	set_bit(CEPH_MDS_R_PARENT_LOCKED, &req->r_req_flags);
 	req->r_num_caps = 2;
 	err = ceph_mdsc_do_request(mdsc, NULL, req);
-	inode_unlock(dir);
 
-	if (err)
-		goto out;
+	inode_unlock(d_inode(parent));
 
-	rinfo = &req->r_reply_info;
-	if (!IS_ENCRYPTED(dir)) {
+	if (!err) {
+		struct ceph_mds_reply_info_parsed *rinfo = &req->r_reply_info;
 		memcpy(name, rinfo->dname, rinfo->dname_len);
 		name[rinfo->dname_len] = 0;
+		dout("get_name %p ino %llx.%llx name %s\n",
+		     child, ceph_vinop(inode), name);
 	} else {
-		struct fscrypt_str oname = FSTR_INIT(NULL, 0);
-		struct ceph_fname fname = { .dir	= dir,
-					    .name	= rinfo->dname,
-					    .ctext	= rinfo->altname,
-					    .name_len	= rinfo->dname_len,
-					    .ctext_len	= rinfo->altname_len };
-
-		err = ceph_fname_alloc_buffer(dir, &oname);
-		if (err < 0)
-			goto out;
-
-		err = ceph_fname_to_usr(&fname, NULL, &oname, NULL);
-		if (!err) {
-			memcpy(name, oname.name, oname.len);
-			name[oname.len] = 0;
-		}
-		ceph_fname_free_buffer(dir, &oname);
+		dout("get_name %p ino %llx.%llx err %d\n",
+		     child, ceph_vinop(inode), err);
 	}
-out:
-	dout("get_name %p ino %llx.%llx err %d %s%s\n",
-		     child, ceph_vinop(inode), err,
-		     err ? "" : "name ", err ? "" : name);
+
 	ceph_mdsc_put_request(req);
 	return err;
 }

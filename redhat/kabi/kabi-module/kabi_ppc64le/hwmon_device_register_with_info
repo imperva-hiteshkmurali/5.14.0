@@ -1,3 +1,2 @@
-#5-
-0xe2707324	hwmon_device_register_with_info	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x8dcd3199	hwmon_device_register_with_info	vmlinux	EXPORT_SYMBOL_GPL	

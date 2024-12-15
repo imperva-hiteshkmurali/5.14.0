@@ -27,6 +27,9 @@
 #include "fs_context.h"
 #include "cached_dir.h"
 
+extern mempool_t *cifs_sm_req_poolp;
+extern mempool_t *cifs_req_poolp;
+
 /* The xid serves as a useful identifier for each incoming vfs request,
    in a similar way to the mid which is useful to track each sent smb,
    and CurrentXid can also provide a running counter (although it
@@ -92,7 +95,6 @@ sesInfoFree(struct cifs_ses *buf_to_free)
 		return;
 	}
 
-	unload_nls(buf_to_free->local_nls);
 	atomic_dec(&sesInfoAllocCount);
 	kfree(buf_to_free->serverOS);
 	kfree(buf_to_free->serverDomain);
@@ -110,22 +112,18 @@ sesInfoFree(struct cifs_ses *buf_to_free)
 }
 
 struct cifs_tcon *
-tcon_info_alloc(bool dir_leases_enabled)
+tconInfoAlloc(void)
 {
 	struct cifs_tcon *ret_buf;
 
 	ret_buf = kzalloc(sizeof(*ret_buf), GFP_KERNEL);
 	if (!ret_buf)
 		return NULL;
-
-	if (dir_leases_enabled == true) {
-		ret_buf->cfids = init_cached_dirs();
-		if (!ret_buf->cfids) {
-			kfree(ret_buf);
-			return NULL;
-		}
+	ret_buf->cfids = init_cached_dirs();
+	if (!ret_buf->cfids) {
+		kfree(ret_buf);
+		return NULL;
 	}
-	/* else ret_buf->cfids is already set to NULL above */
 
 	atomic_inc(&tconInfoAllocCount);
 	ret_buf->status = TID_NEW;
@@ -476,13 +474,11 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 		return false;
 
 	/* If server is a channel, select the primary channel */
-	pserver = SERVER_IS_CHAN(srv) ? srv->primary_server : srv;
+	pserver = CIFS_SERVER_IS_CHAN(srv) ? srv->primary_server : srv;
 
 	/* look up tcon based on tid & uid */
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(ses, &pserver->smb_ses_list, smb_ses_list) {
-		if (cifs_ses_exiting(ses))
-			continue;
 		list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 			if (tcon->tid != buf->Tid)
 				continue;
@@ -843,40 +839,6 @@ cifs_close_deferred_file_under_dentry(struct cifs_tcon *tcon, const char *path)
 		list_del(&tmp_list->list);
 		kfree(tmp_list);
 	}
-	free_dentry_path(page);
-}
-
-/*
- * If a dentry has been deleted, all corresponding open handles should know that
- * so that we do not defer close them.
- */
-void cifs_mark_open_handles_for_deleted_file(struct inode *inode,
-					     const char *path)
-{
-	struct cifsFileInfo *cfile;
-	void *page;
-	const char *full_path;
-	struct cifsInodeInfo *cinode = CIFS_I(inode);
-
-	page = alloc_dentry_path();
-	spin_lock(&cinode->open_file_lock);
-
-	/*
-	 * note: we need to construct path from dentry and compare only if the
-	 * inode has any hardlinks. When number of hardlinks is 1, we can just
-	 * mark all open handles since they are going to be from the same file.
-	 */
-	if (inode->i_nlink > 1) {
-		list_for_each_entry(cfile, &cinode->openFileList, flist) {
-			full_path = build_path_from_dentry(cfile->dentry, page);
-			if (!IS_ERR(full_path) && strcmp(full_path, path) == 0)
-				cfile->status_file_deleted = true;
-		}
-	} else {
-		list_for_each_entry(cfile, &cinode->openFileList, flist)
-			cfile->status_file_deleted = true;
-	}
-	spin_unlock(&cinode->open_file_lock);
 	free_dentry_path(page);
 }
 

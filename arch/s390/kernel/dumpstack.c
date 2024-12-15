@@ -41,50 +41,60 @@ const char *stack_type_name(enum stack_type type)
 EXPORT_SYMBOL_GPL(stack_type_name);
 
 static inline bool in_stack(unsigned long sp, struct stack_info *info,
-			    enum stack_type type, unsigned long stack)
+			    enum stack_type type, unsigned long low,
+			    unsigned long high)
 {
-	if (sp < stack || sp >= stack + THREAD_SIZE)
+	if (sp < low || sp >= high)
 		return false;
 	info->type = type;
-	info->begin = stack;
-	info->end = stack + THREAD_SIZE;
+	info->begin = low;
+	info->end = high;
 	return true;
 }
 
 static bool in_task_stack(unsigned long sp, struct task_struct *task,
 			  struct stack_info *info)
 {
-	unsigned long stack = (unsigned long)task_stack_page(task);
+	unsigned long stack;
 
-	return in_stack(sp, info, STACK_TYPE_TASK, stack);
+	stack = (unsigned long) task_stack_page(task);
+	return in_stack(sp, info, STACK_TYPE_TASK, stack, stack + THREAD_SIZE);
 }
 
 static bool in_irq_stack(unsigned long sp, struct stack_info *info)
 {
-	unsigned long stack = S390_lowcore.async_stack - STACK_INIT_OFFSET;
+	unsigned long frame_size, top;
 
-	return in_stack(sp, info, STACK_TYPE_IRQ, stack);
+	frame_size = STACK_FRAME_OVERHEAD + sizeof(struct pt_regs);
+	top = S390_lowcore.async_stack + frame_size;
+	return in_stack(sp, info, STACK_TYPE_IRQ, top - THREAD_SIZE, top);
 }
 
 static bool in_nodat_stack(unsigned long sp, struct stack_info *info)
 {
-	unsigned long stack = S390_lowcore.nodat_stack - STACK_INIT_OFFSET;
+	unsigned long frame_size, top;
 
-	return in_stack(sp, info, STACK_TYPE_NODAT, stack);
+	frame_size = STACK_FRAME_OVERHEAD + sizeof(struct pt_regs);
+	top = S390_lowcore.nodat_stack + frame_size;
+	return in_stack(sp, info, STACK_TYPE_NODAT, top - THREAD_SIZE, top);
 }
 
 static bool in_mcck_stack(unsigned long sp, struct stack_info *info)
 {
-	unsigned long stack = S390_lowcore.mcck_stack - STACK_INIT_OFFSET;
+	unsigned long frame_size, top;
 
-	return in_stack(sp, info, STACK_TYPE_MCCK, stack);
+	frame_size = STACK_FRAME_OVERHEAD + sizeof(struct pt_regs);
+	top = S390_lowcore.mcck_stack + frame_size;
+	return in_stack(sp, info, STACK_TYPE_MCCK, top - THREAD_SIZE, top);
 }
 
 static bool in_restart_stack(unsigned long sp, struct stack_info *info)
 {
-	unsigned long stack = S390_lowcore.restart_stack - STACK_INIT_OFFSET;
+	unsigned long frame_size, top;
 
-	return in_stack(sp, info, STACK_TYPE_RESTART, stack);
+	frame_size = STACK_FRAME_OVERHEAD + sizeof(struct pt_regs);
+	top = S390_lowcore.restart_stack + frame_size;
+	return in_stack(sp, info, STACK_TYPE_RESTART, top - THREAD_SIZE, top);
 }
 
 int get_stack_info(unsigned long sp, struct task_struct *task,

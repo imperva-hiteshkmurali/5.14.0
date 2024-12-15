@@ -5,7 +5,6 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
-#include <linux/cpu.h>
 #include <linux/prctl.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
@@ -132,11 +131,9 @@ static int set_new_tls(struct task_struct *p, unsigned long tls)
 		return do_set_thread_area_64(p, ARCH_SET_FS, tls);
 }
 
-int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
+int copy_thread(unsigned long clone_flags, unsigned long sp, unsigned long arg,
+		struct task_struct *p, unsigned long tls)
 {
-	unsigned long clone_flags = args->flags;
-	unsigned long sp = args->stack;
-	unsigned long tls = args->tls;
 	struct inactive_task_frame *frame;
 	struct fork_frame *fork_frame;
 	struct pt_regs *childregs;
@@ -177,13 +174,13 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	frame->flags = X86_EFLAGS_FIXED;
 #endif
 
-	fpu_clone(p, clone_flags, args->fn);
+	fpu_clone(p, clone_flags);
 
 	/* Kernel thread ? */
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		p->thread.pkru = pkru_get_init_value();
 		memset(childregs, 0, sizeof(struct pt_regs));
-		kthread_frame_init(frame, args->fn, args->fn_arg);
+		kthread_frame_init(frame, sp, arg);
 		return 0;
 	}
 
@@ -199,10 +196,10 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	if (sp)
 		childregs->sp = sp;
 
-	if (unlikely(args->fn)) {
+	if (unlikely(p->flags & PF_IO_WORKER)) {
 		/*
-		 * A user space thread, but it doesn't return to
-		 * ret_after_fork().
+		 * An IO thread is a user space thread, but it doesn't
+		 * return to ret_after_fork().
 		 *
 		 * In order to indicate that to tools like gdb,
 		 * we reset the stack and instruction pointers.
@@ -212,7 +209,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		 */
 		childregs->sp = 0;
 		childregs->ip = 0;
-		kthread_frame_init(frame, args->fn, args->fn_arg);
+		kthread_frame_init(frame, sp, arg);
 		return 0;
 	}
 
@@ -411,7 +408,7 @@ static void tss_copy_io_bitmap(struct tss_struct *tss, struct io_bitmap *iobm)
 }
 
 /**
- * native_tss_update_io_bitmap - Update I/O bitmap before exiting to user mode
+ * tss_update_io_bitmap - Update I/O bitmap before exiting to usermode
  */
 void native_tss_update_io_bitmap(void)
 {
@@ -692,6 +689,9 @@ void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p)
 		/* Enforce MSR update to ensure consistent state */
 		__speculation_ctrl_update(~tifn, tifn);
 	}
+
+	if ((tifp ^ tifn) & _TIF_SLD)
+		switch_to_sld(tifn);
 }
 
 /*
@@ -703,7 +703,7 @@ EXPORT_SYMBOL(boot_option_idle_override);
 static void (*x86_idle)(void);
 
 #ifndef CONFIG_SMP
-static inline void __noreturn play_dead(void)
+static inline void play_dead(void)
 {
 	BUG();
 }

@@ -10,7 +10,6 @@
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -280,6 +279,7 @@ static void dwc3_imx8mp_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(dev);
 	pm_runtime_put_noidle(dev);
+	platform_set_drvdata(pdev, NULL);
 }
 
 static int __maybe_unused dwc3_imx8mp_suspend(struct dwc3_imx8mp *dwc3_imx,
@@ -363,10 +363,8 @@ static int __maybe_unused dwc3_imx8mp_pm_resume(struct device *dev)
 	}
 
 	ret = clk_prepare_enable(dwc3_imx->hsio_clk);
-	if (ret) {
-		clk_disable_unprepare(dwc3_imx->suspend_clk);
+	if (ret)
 		return ret;
-	}
 
 	ret = dwc3_imx8mp_resume(dwc3_imx, PMSG_RESUME);
 

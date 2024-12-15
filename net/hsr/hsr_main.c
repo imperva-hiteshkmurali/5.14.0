@@ -96,7 +96,7 @@ static int hsr_netdev_notify(struct notifier_block *nb, unsigned long event,
 			break; /* Handled in ndo_change_mtu() */
 		mtu_max = hsr_get_max_mtu(port->hsr);
 		master = hsr_port_get_hsr(port->hsr, HSR_PT_MASTER);
-		WRITE_ONCE(master->dev->mtu, mtu_max);
+		master->dev->mtu = mtu_max;
 		break;
 	case NETDEV_UNREGISTER:
 		if (!is_hsr_master(dev)) {
@@ -148,22 +148,18 @@ static struct notifier_block hsr_nb = {
 
 static int __init hsr_init(void)
 {
-	int err;
+	int res;
 
 	BUILD_BUG_ON(sizeof(struct hsr_tag) != HSR_HLEN);
 
-	err = register_netdevice_notifier(&hsr_nb);
-	if (err)
-		return err;
+	register_netdevice_notifier(&hsr_nb);
+	res = hsr_netlink_init();
 
-	err = hsr_netlink_init();
-	if (err) {
-		unregister_netdevice_notifier(&hsr_nb);
-		return err;
+	if (res >= 0) {
+		mark_tech_preview("HSR/PRP", THIS_MODULE);
 	}
 
-	mark_tech_preview("HSR/PRP", THIS_MODULE);
-	return 0;
+	return res;
 }
 
 static void __exit hsr_exit(void)

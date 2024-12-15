@@ -29,7 +29,6 @@
 #include <net/inet_common.h>
 #include <net/xfrm.h>
 #include <net/busy_poll.h>
-#include <net/rstreason.h>
 
 static bool tcp_in_window(u32 seq, u32 end_seq, u32 s_win, u32 e_win)
 {
@@ -806,7 +805,7 @@ embryonic_reset:
 		 * avoid becoming vulnerable to outside attack aiming at
 		 * resetting legit local connections.
 		 */
-		req->rsk_ops->send_reset(sk, skb, SK_RST_REASON_INVALID_SYN);
+		req->rsk_ops->send_reset(sk, skb);
 	} else if (fastopen) { /* received a valid RST pkt */
 		reqsk_fastopen_remove(sk, req, true);
 		tcp_reset(sk, skb);
@@ -834,11 +833,11 @@ EXPORT_SYMBOL(tcp_check_req);
  * be created.
  */
 
-enum skb_drop_reason tcp_child_process(struct sock *parent, struct sock *child,
-				       struct sk_buff *skb)
+int tcp_child_process(struct sock *parent, struct sock *child,
+		      struct sk_buff *skb)
 	__releases(&((child)->sk_lock.slock))
 {
-	enum skb_drop_reason reason = SKB_NOT_DROPPED_YET;
+	int ret = 0;
 	int state = child->sk_state;
 
 	/* record NAPI ID of child */
@@ -846,7 +845,7 @@ enum skb_drop_reason tcp_child_process(struct sock *parent, struct sock *child,
 
 	tcp_segs_in(tcp_sk(child), skb);
 	if (!sock_owned_by_user(child)) {
-		reason = tcp_rcv_state_process(child, skb);
+		ret = tcp_rcv_state_process(child, skb);
 		/* Wakeup parent, send SIGIO */
 		if (state == TCP_SYN_RECV && child->sk_state != state)
 			parent->sk_data_ready(parent);
@@ -860,6 +859,6 @@ enum skb_drop_reason tcp_child_process(struct sock *parent, struct sock *child,
 
 	bh_unlock_sock(child);
 	sock_put(child);
-	return reason;
+	return ret;
 }
 EXPORT_SYMBOL(tcp_child_process);

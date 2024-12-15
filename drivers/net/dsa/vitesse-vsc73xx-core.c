@@ -929,8 +929,7 @@ static void vsc73xx_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 	const struct vsc73xx_counter *cnt;
 	struct vsc73xx *vsc = ds->priv;
 	u8 indices[6];
-	u8 *buf = data;
-	int i;
+	int i, j;
 	u32 val;
 	int ret;
 
@@ -950,7 +949,10 @@ static void vsc73xx_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 	indices[5] = ((val >> 26) & 0x1f); /* TX counter 2 */
 
 	/* The first counters is the RX octets */
-	ethtool_puts(&buf, "RxEtherStatsOctets");
+	j = 0;
+	strncpy(data + j * ETH_GSTRING_LEN,
+		"RxEtherStatsOctets", ETH_GSTRING_LEN);
+	j++;
 
 	/* Each port supports recording 3 RX counters and 3 TX counters,
 	 * figure out what counters we use in this set-up and return the
@@ -960,16 +962,23 @@ static void vsc73xx_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 	 */
 	for (i = 0; i < 3; i++) {
 		cnt = vsc73xx_find_counter(vsc, indices[i], false);
-		ethtool_puts(&buf, cnt ? cnt->name : "");
+		if (cnt)
+			strncpy(data + j * ETH_GSTRING_LEN,
+				cnt->name, ETH_GSTRING_LEN);
+		j++;
 	}
 
 	/* TX stats begins with the number of TX octets */
-	ethtool_puts(&buf, "TxEtherStatsOctets");
+	strncpy(data + j * ETH_GSTRING_LEN,
+		"TxEtherStatsOctets", ETH_GSTRING_LEN);
+	j++;
 
 	for (i = 3; i < 6; i++) {
 		cnt = vsc73xx_find_counter(vsc, indices[i], true);
-		ethtool_puts(&buf, cnt ? cnt->name : "");
-
+		if (cnt)
+			strncpy(data + j * ETH_GSTRING_LEN,
+				cnt->name, ETH_GSTRING_LEN);
+		j++;
 	}
 }
 

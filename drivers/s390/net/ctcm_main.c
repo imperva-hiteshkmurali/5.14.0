@@ -200,13 +200,13 @@ static void channel_free(struct channel *ch)
 static void channel_remove(struct channel *ch)
 {
 	struct channel **c = &channels;
-	char chid[CTCM_ID_SIZE];
+	char chid[CTCM_ID_SIZE+1];
 	int ok = 0;
 
 	if (ch == NULL)
 		return;
 	else
-		strscpy(chid, ch->id, sizeof(chid));
+		strncpy(chid, ch->id, CTCM_ID_SIZE);
 
 	channel_free(ch);
 	while (*c) {
@@ -996,7 +996,7 @@ static int ctcm_change_mtu(struct net_device *dev, int new_mtu)
 			return -EINVAL;
 		dev->hard_header_len = LL_HEADER_LENGTH + 2;
 	}
-	WRITE_ONCE(dev->mtu, new_mtu);
+	dev->mtu = new_mtu;
 	return 0;
 }
 

@@ -653,7 +653,7 @@ setup_arch(char **cmdline_p)
 
 #ifdef CONFIG_VT
 #if defined(CONFIG_VGA_CONSOLE)
-	vgacon_register_screen(&screen_info);
+	conswitchp = &vga_con;
 #endif
 #endif
 

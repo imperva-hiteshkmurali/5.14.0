@@ -1,3 +1,2 @@
-#5-
-0x44897f62	set_disk_ro	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xd5944340	set_disk_ro	vmlinux	EXPORT_SYMBOL	

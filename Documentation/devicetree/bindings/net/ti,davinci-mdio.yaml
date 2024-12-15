@@ -49,7 +49,6 @@ if:
     compatible:
       contains:
         const: ti,davinci_mdio
-then:
   required:
     - bus_freq
 

@@ -1,3 +1,2 @@
-#5-
-0x89c11893	scsi_device_get	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x20fffa4f	scsi_device_get	vmlinux	EXPORT_SYMBOL	

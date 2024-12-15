@@ -1,3 +1,2 @@
-#5-
-0x50742838	pci_prepare_to_sleep	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x8bafea12	pci_prepare_to_sleep	vmlinux	EXPORT_SYMBOL	

@@ -23,7 +23,7 @@ static void i40e_fdir(struct i40e_ring *tx_ring,
 {
 	struct i40e_filter_program_desc *fdir_desc;
 	struct i40e_pf *pf = tx_ring->vsi->back;
-	u32 flex_ptype, dtype_cmd, vsi_id;
+	u32 flex_ptype, dtype_cmd;
 	u16 i;
 
 	/* grab the next descriptor */
@@ -41,8 +41,8 @@ static void i40e_fdir(struct i40e_ring *tx_ring,
 	flex_ptype |= FIELD_PREP(I40E_TXD_FLTR_QW0_PCTYPE_MASK, fdata->pctype);
 
 	/* Use LAN VSI Id if not programmed by user */
-	vsi_id = fdata->dest_vsi ? : i40e_pf_get_main_vsi(pf)->id;
-	flex_ptype |= FIELD_PREP(I40E_TXD_FLTR_QW0_DEST_VSI_MASK, vsi_id);
+	flex_ptype |= FIELD_PREP(I40E_TXD_FLTR_QW0_DEST_VSI_MASK,
+				 fdata->dest_vsi ? : pf->vsi[pf->lan_vsi]->id);
 
 	dtype_cmd = I40E_TX_DESC_DTYPE_FILTER_PROG;
 
@@ -860,15 +860,13 @@ u32 i40e_get_tx_pending(struct i40e_ring *ring, bool in_sw)
 
 /**
  * i40e_detect_recover_hung - Function to detect and recover hung_queues
- * @pf: pointer to PF struct
+ * @vsi:  pointer to vsi struct with tx queues
  *
- * LAN VSI has netdev and netdev has TX queues. This function is to check
- * each of those TX queues if they are hung, trigger recovery by issuing
- * SW interrupt.
+ * VSI has netdev and netdev has TX queues. This function is to check each of
+ * those TX queues if they are hung, trigger recovery by issuing SW interrupt.
  **/
-void i40e_detect_recover_hung(struct i40e_pf *pf)
+void i40e_detect_recover_hung(struct i40e_vsi *vsi)
 {
-	struct i40e_vsi *vsi = i40e_pf_get_main_vsi(pf);
 	struct i40e_ring *tx_ring = NULL;
 	struct net_device *netdev;
 	unsigned int i;
@@ -2146,7 +2144,9 @@ static struct sk_buff *i40e_construct_skb(struct i40e_ring *rx_ring,
 	 */
 
 	/* allocate a skb to store the frags */
-	skb = napi_alloc_skb(&rx_ring->q_vector->napi, I40E_RX_HDR_SIZE);
+	skb = __napi_alloc_skb(&rx_ring->q_vector->napi,
+			       I40E_RX_HDR_SIZE,
+			       GFP_ATOMIC | __GFP_NOWARN);
 	if (unlikely(!skb))
 		return NULL;
 
@@ -2630,22 +2630,7 @@ process_next:
 	return failure ? budget : (int)total_rx_packets;
 }
 
-/**
- * i40e_buildreg_itr - build a value for writing to I40E_PFINT_DYN_CTLN register
- * @itr_idx: interrupt throttling index
- * @interval: interrupt throttling interval value in usecs
- * @force_swint: force software interrupt
- *
- * The function builds a value for I40E_PFINT_DYN_CTLN register that
- * is used to update interrupt throttling interval for specified ITR index
- * and optionally enforces a software interrupt. If the @itr_idx is equal
- * to I40E_ITR_NONE then no interval change is applied and only @force_swint
- * parameter is taken into account. If the interval change and enforced
- * software interrupt are not requested then the built value just enables
- * appropriate vector interrupt.
- **/
-static u32 i40e_buildreg_itr(enum i40e_dyn_idx itr_idx, u16 interval,
-			     bool force_swint)
+static inline u32 i40e_buildreg_itr(const int type, u16 itr)
 {
 	u32 val;
 
@@ -2659,32 +2644,22 @@ static u32 i40e_buildreg_itr(enum i40e_dyn_idx itr_idx, u16 interval,
 	 * an event in the PBA anyway so we need to rely on the automask
 	 * to hold pending events for us until the interrupt is re-enabled
 	 *
-	 * We have to shift the given value as it is reported in microseconds
-	 * and the register value is recorded in 2 microsecond units.
+	 * The itr value is reported in microseconds, and the register
+	 * value is recorded in 2 microsecond units. For this reason we
+	 * only need to shift by the interval shift - 1 instead of the
+	 * full value.
 	 */
-	interval >>= 1;
+	itr &= I40E_ITR_MASK;
 
-	/* 1. Enable vector interrupt
-	 * 2. Update the interval for the specified ITR index
-	 *    (I40E_ITR_NONE in the register is used to indicate that
-	 *     no interval update is requested)
-	 */
 	val = I40E_PFINT_DYN_CTLN_INTENA_MASK |
-	      FIELD_PREP(I40E_PFINT_DYN_CTLN_ITR_INDX_MASK, itr_idx) |
-	      FIELD_PREP(I40E_PFINT_DYN_CTLN_INTERVAL_MASK, interval);
-
-	/* 3. Enforce software interrupt trigger if requested
-	 *    (These software interrupts rate is limited by ITR2 that is
-	 *     set to 20K interrupts per second)
-	 */
-	if (force_swint)
-		val |= I40E_PFINT_DYN_CTLN_SWINT_TRIG_MASK |
-		       I40E_PFINT_DYN_CTLN_SW_ITR_INDX_ENA_MASK |
-		       FIELD_PREP(I40E_PFINT_DYN_CTLN_SW_ITR_INDX_MASK,
-				  I40E_SW_ITR);
+	      (type << I40E_PFINT_DYN_CTLN_ITR_INDX_SHIFT) |
+	      (itr << (I40E_PFINT_DYN_CTLN_INTERVAL_SHIFT - 1));
 
 	return val;
 }
+
+/* a small macro to shorten up some long lines */
+#define INTREG I40E_PFINT_DYN_CTLN
 
 /* The act of updating the ITR will cause it to immediately trigger. In order
  * to prevent this from throwing off adaptive update statistics we defer the
@@ -2704,10 +2679,8 @@ static u32 i40e_buildreg_itr(enum i40e_dyn_idx itr_idx, u16 interval,
 static inline void i40e_update_enable_itr(struct i40e_vsi *vsi,
 					  struct i40e_q_vector *q_vector)
 {
-	enum i40e_dyn_idx itr_idx = I40E_ITR_NONE;
 	struct i40e_hw *hw = &vsi->back->hw;
-	u16 interval = 0;
-	u32 itr_val;
+	u32 intval;
 
 	/* If we don't have MSIX, then we only need to re-enable icr0 */
 	if (!test_bit(I40E_FLAG_MSIX_ENA, vsi->back->flags)) {
@@ -2729,8 +2702,8 @@ static inline void i40e_update_enable_itr(struct i40e_vsi *vsi,
 	 */
 	if (q_vector->rx.target_itr < q_vector->rx.current_itr) {
 		/* Rx ITR needs to be reduced, this is highest priority */
-		itr_idx = I40E_RX_ITR;
-		interval = q_vector->rx.target_itr;
+		intval = i40e_buildreg_itr(I40E_RX_ITR,
+					   q_vector->rx.target_itr);
 		q_vector->rx.current_itr = q_vector->rx.target_itr;
 		q_vector->itr_countdown = ITR_COUNTDOWN_START;
 	} else if ((q_vector->tx.target_itr < q_vector->tx.current_itr) ||
@@ -2739,36 +2712,25 @@ static inline void i40e_update_enable_itr(struct i40e_vsi *vsi,
 		/* Tx ITR needs to be reduced, this is second priority
 		 * Tx ITR needs to be increased more than Rx, fourth priority
 		 */
-		itr_idx = I40E_TX_ITR;
-		interval = q_vector->tx.target_itr;
+		intval = i40e_buildreg_itr(I40E_TX_ITR,
+					   q_vector->tx.target_itr);
 		q_vector->tx.current_itr = q_vector->tx.target_itr;
 		q_vector->itr_countdown = ITR_COUNTDOWN_START;
 	} else if (q_vector->rx.current_itr != q_vector->rx.target_itr) {
 		/* Rx ITR needs to be increased, third priority */
-		itr_idx = I40E_RX_ITR;
-		interval = q_vector->rx.target_itr;
+		intval = i40e_buildreg_itr(I40E_RX_ITR,
+					   q_vector->rx.target_itr);
 		q_vector->rx.current_itr = q_vector->rx.target_itr;
 		q_vector->itr_countdown = ITR_COUNTDOWN_START;
 	} else {
 		/* No ITR update, lowest priority */
+		intval = i40e_buildreg_itr(I40E_ITR_NONE, 0);
 		if (q_vector->itr_countdown)
 			q_vector->itr_countdown--;
 	}
 
-	/* Do not update interrupt control register if VSI is down */
-	if (test_bit(__I40E_VSI_DOWN, vsi->state))
-		return;
-
-	/* Update ITR interval if necessary and enforce software interrupt
-	 * if we are exiting busy poll.
-	 */
-	if (q_vector->in_busy_poll) {
-		itr_val = i40e_buildreg_itr(itr_idx, interval, true);
-		q_vector->in_busy_poll = false;
-	} else {
-		itr_val = i40e_buildreg_itr(itr_idx, interval, false);
-	}
-	wr32(hw, I40E_PFINT_DYN_CTLN(q_vector->reg_idx), itr_val);
+	if (!test_bit(__I40E_VSI_DOWN, vsi->state))
+		wr32(hw, INTREG(q_vector->reg_idx), intval);
 }
 
 /**
@@ -2883,8 +2845,6 @@ tx_only:
 	 */
 	if (likely(napi_complete_done(napi, work_done)))
 		i40e_update_enable_itr(vsi, q_vector);
-	else
-		q_vector->in_busy_poll = true;
 
 	return min(work_done, budget - 1);
 }

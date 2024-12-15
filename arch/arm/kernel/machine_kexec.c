@@ -73,7 +73,7 @@ void machine_kexec_cleanup(struct kimage *image)
 {
 }
 
-static void machine_crash_nonpanic_core(void *unused)
+void machine_crash_nonpanic_core(void *unused)
 {
 	struct pt_regs regs;
 

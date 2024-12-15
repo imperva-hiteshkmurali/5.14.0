@@ -1,3 +1,2 @@
-#5-
-0x7341e596	tty_unregister_driver	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x4f087ff3	tty_unregister_driver	vmlinux	EXPORT_SYMBOL	

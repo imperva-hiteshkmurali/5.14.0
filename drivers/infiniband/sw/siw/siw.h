@@ -74,7 +74,6 @@ struct siw_device {
 
 	u32 vendor_part_id;
 	int numa_node;
-	char raw_gid[ETH_ALEN];
 
 	/* physical port state (only one port per device) */
 	enum ib_port_state state;

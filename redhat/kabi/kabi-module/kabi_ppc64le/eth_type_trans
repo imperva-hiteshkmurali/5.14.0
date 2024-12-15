@@ -1,3 +1,2 @@
-#5-
-0x07828824	eth_type_trans	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x00867033	eth_type_trans	vmlinux	EXPORT_SYMBOL	

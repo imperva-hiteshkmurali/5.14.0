@@ -370,4 +370,3 @@ module_exit(ingress_module_exit);
 
 MODULE_ALIAS("sch_clsact");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Ingress and clsact based ingress and egress qdiscs");

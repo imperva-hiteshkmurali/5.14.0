@@ -518,8 +518,14 @@ static void macsec_count_tx(struct sk_buff *skb, struct macsec_tx_sc *tx_sc,
 
 static void count_tx(struct net_device *dev, int ret, int len)
 {
-	if (likely(ret == NET_XMIT_SUCCESS || ret == NET_XMIT_CN))
-		dev_sw_netstats_tx_add(dev, 1, len);
+	if (likely(ret == NET_XMIT_SUCCESS || ret == NET_XMIT_CN)) {
+		struct pcpu_sw_netstats *stats = this_cpu_ptr(dev->tstats);
+
+		u64_stats_update_begin(&stats->syncp);
+		u64_stats_inc(&stats->tx_packets);
+		u64_stats_add(&stats->tx_bytes, len);
+		u64_stats_update_end(&stats->syncp);
+	}
 }
 
 static void macsec_encrypt_done(struct crypto_async_request *base, int err)
@@ -737,7 +743,7 @@ static bool macsec_post_decrypt(struct sk_buff *skb, struct macsec_secy *secy, u
 		u64_stats_update_begin(&rxsc_stats->syncp);
 		rxsc_stats->stats.InPktsLate++;
 		u64_stats_update_end(&rxsc_stats->syncp);
-		DEV_STATS_INC(secy->netdev, rx_dropped);
+		secy->netdev->stats.rx_dropped++;
 		return false;
 	}
 
@@ -761,7 +767,7 @@ static bool macsec_post_decrypt(struct sk_buff *skb, struct macsec_secy *secy, u
 			rxsc_stats->stats.InPktsNotValid++;
 			u64_stats_update_end(&rxsc_stats->syncp);
 			this_cpu_inc(rx_sa->stats->InPktsNotValid);
-			DEV_STATS_INC(secy->netdev, rx_errors);
+			secy->netdev->stats.rx_errors++;
 			return false;
 		}
 
@@ -821,7 +827,12 @@ static void macsec_finalize_skb(struct sk_buff *skb, u8 icv_len, u8 hdr_len)
 
 static void count_rx(struct net_device *dev, int len)
 {
-	dev_sw_netstats_rx_add(dev, len);
+	struct pcpu_sw_netstats *stats = this_cpu_ptr(dev->tstats);
+
+	u64_stats_update_begin(&stats->syncp);
+	u64_stats_inc(&stats->rx_packets);
+	u64_stats_add(&stats->rx_bytes, len);
+	u64_stats_update_end(&stats->syncp);
 }
 
 static void macsec_decrypt_done(struct crypto_async_request *base, int err)
@@ -996,12 +1007,10 @@ static enum rx_handler_result handle_not_macsec(struct sk_buff *skb)
 	struct metadata_dst *md_dst;
 	struct macsec_rxh_data *rxd;
 	struct macsec_dev *macsec;
-	bool is_macsec_md_dst;
 
 	rcu_read_lock();
 	rxd = macsec_data_rcu(skb->dev);
 	md_dst = skb_metadata_dst(skb);
-	is_macsec_md_dst = md_dst && md_dst->type == METADATA_MACSEC;
 
 	list_for_each_entry_rcu(macsec, &rxd->secys, secys) {
 		struct sk_buff *nskb;
@@ -1012,42 +1021,14 @@ static enum rx_handler_result handle_not_macsec(struct sk_buff *skb)
 		 * the SecTAG, so we have to deduce which port to deliver to.
 		 */
 		if (macsec_is_offloaded(macsec) && netif_running(ndev)) {
-			const struct macsec_ops *ops;
+			struct macsec_rx_sc *rx_sc = NULL;
 
-			ops = macsec_get_ops(macsec, NULL);
+			if (md_dst && md_dst->type == METADATA_MACSEC)
+				rx_sc = find_rx_sc(&macsec->secy, md_dst->u.macsec_info.sci);
 
-			if (ops->rx_uses_md_dst && !is_macsec_md_dst)
+			if (md_dst && md_dst->type == METADATA_MACSEC && !rx_sc)
 				continue;
 
-			if (is_macsec_md_dst) {
-				struct macsec_rx_sc *rx_sc;
-
-				/* All drivers that implement MACsec offload
-				 * support using skb metadata destinations must
-				 * indicate that they do so.
-				 */
-				DEBUG_NET_WARN_ON_ONCE(!ops->rx_uses_md_dst);
-				rx_sc = find_rx_sc(&macsec->secy,
-						   md_dst->u.macsec_info.sci);
-				if (!rx_sc)
-					continue;
-				/* device indicated macsec offload occurred */
-				skb->dev = ndev;
-				skb->pkt_type = PACKET_HOST;
-				eth_skb_pkt_type(skb, ndev);
-				ret = RX_HANDLER_ANOTHER;
-				goto out;
-			}
-
-			/* This datapath is insecure because it is unable to
-			 * enforce isolation of broadcast/multicast traffic and
-			 * unicast traffic with promiscuous mode on the macsec
-			 * netdev. Since the core stack has no mechanism to
-			 * check that the hardware did indeed receive MACsec
-			 * traffic, it is possible that the response handling
-			 * done by the MACsec port was to a plaintext packet.
-			 * This violates the MACsec protocol standard.
-			 */
 			if (ether_addr_equal_64bits(hdr->h_dest,
 						    ndev->dev_addr)) {
 				/* exact match, divert skb to this port */
@@ -1063,10 +1044,14 @@ static enum rx_handler_result handle_not_macsec(struct sk_buff *skb)
 					break;
 
 				nskb->dev = ndev;
-				eth_skb_pkt_type(nskb, ndev);
+				if (ether_addr_equal_64bits(hdr->h_dest,
+							    ndev->broadcast))
+					nskb->pkt_type = PACKET_BROADCAST;
+				else
+					nskb->pkt_type = PACKET_MULTICAST;
 
 				__netif_rx(nskb);
-			} else if (ndev->flags & IFF_PROMISC) {
+			} else if (rx_sc || ndev->flags & IFF_PROMISC) {
 				skb->dev = ndev;
 				skb->pkt_type = PACKET_HOST;
 				ret = RX_HANDLER_ANOTHER;
@@ -1084,7 +1069,7 @@ static enum rx_handler_result handle_not_macsec(struct sk_buff *skb)
 			u64_stats_update_begin(&secy_stats->syncp);
 			secy_stats->stats.InPktsNoTag++;
 			u64_stats_update_end(&secy_stats->syncp);
-			DEV_STATS_INC(macsec->secy.netdev, rx_dropped);
+			macsec->secy.netdev->stats.rx_dropped++;
 			continue;
 		}
 
@@ -1194,7 +1179,7 @@ static rx_handler_result_t macsec_handle_frame(struct sk_buff **pskb)
 		u64_stats_update_begin(&secy_stats->syncp);
 		secy_stats->stats.InPktsBadTag++;
 		u64_stats_update_end(&secy_stats->syncp);
-		DEV_STATS_INC(secy->netdev, rx_errors);
+		secy->netdev->stats.rx_errors++;
 		goto drop_nosa;
 	}
 
@@ -1211,7 +1196,7 @@ static rx_handler_result_t macsec_handle_frame(struct sk_buff **pskb)
 			u64_stats_update_begin(&rxsc_stats->syncp);
 			rxsc_stats->stats.InPktsNotUsingSA++;
 			u64_stats_update_end(&rxsc_stats->syncp);
-			DEV_STATS_INC(secy->netdev, rx_errors);
+			secy->netdev->stats.rx_errors++;
 			if (active_rx_sa)
 				this_cpu_inc(active_rx_sa->stats->InPktsNotUsingSA);
 			goto drop_nosa;
@@ -1245,7 +1230,7 @@ static rx_handler_result_t macsec_handle_frame(struct sk_buff **pskb)
 			u64_stats_update_begin(&rxsc_stats->syncp);
 			rxsc_stats->stats.InPktsLate++;
 			u64_stats_update_end(&rxsc_stats->syncp);
-			DEV_STATS_INC(macsec->secy.netdev, rx_dropped);
+			macsec->secy.netdev->stats.rx_dropped++;
 			goto drop;
 		}
 	}
@@ -1286,7 +1271,7 @@ deliver:
 	if (ret == NET_RX_SUCCESS)
 		count_rx(dev, len);
 	else
-		DEV_STATS_INC(macsec->secy.netdev, rx_dropped);
+		macsec->secy.netdev->stats.rx_dropped++;
 
 	rcu_read_unlock();
 
@@ -1323,7 +1308,7 @@ nosci:
 			u64_stats_update_begin(&secy_stats->syncp);
 			secy_stats->stats.InPktsNoSCI++;
 			u64_stats_update_end(&secy_stats->syncp);
-			DEV_STATS_INC(macsec->secy.netdev, rx_errors);
+			macsec->secy.netdev->stats.rx_errors++;
 			continue;
 		}
 
@@ -1342,7 +1327,7 @@ nosci:
 			secy_stats->stats.InPktsUnknownSCI++;
 			u64_stats_update_end(&secy_stats->syncp);
 		} else {
-			DEV_STATS_INC(macsec->secy.netdev, rx_dropped);
+			macsec->secy.netdev->stats.rx_dropped++;
 		}
 	}
 
@@ -1688,6 +1673,7 @@ static int macsec_offload(int (* const func)(struct macsec_context *),
 	if (ctx->offload == MACSEC_OFFLOAD_PHY)
 		mutex_lock(&ctx->phydev->lock);
 
+	ctx->prepare = false;
 	ret = (*func)(ctx);
 
 	if (ctx->offload == MACSEC_OFFLOAD_PHY)
@@ -2409,7 +2395,6 @@ static int macsec_upd_txsa(struct sk_buff *skb, struct genl_info *info)
 
 		ctx.sa.assoc_num = assoc_num;
 		ctx.sa.tx_sa = tx_sa;
-		ctx.sa.update_pn = !!prev_pn.full64;
 		ctx.secy = secy;
 
 		ret = macsec_offload(ops->mdo_upd_txsa, &ctx);
@@ -2503,7 +2488,6 @@ static int macsec_upd_rxsa(struct sk_buff *skb, struct genl_info *info)
 
 		ctx.sa.assoc_num = assoc_num;
 		ctx.sa.rx_sa = rx_sa;
-		ctx.sa.update_pn = !!prev_pn.full64;
 		ctx.secy = secy;
 
 		ret = macsec_offload(ops->mdo_upd_rxsa, &ctx);
@@ -3438,7 +3422,7 @@ static netdev_tx_t macsec_start_xmit(struct sk_buff *skb,
 
 	if (!secy->operational) {
 		kfree_skb(skb);
-		DEV_STATS_INC(dev, tx_dropped);
+		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
 
@@ -3446,7 +3430,7 @@ static netdev_tx_t macsec_start_xmit(struct sk_buff *skb,
 	skb = macsec_encrypt(skb, dev);
 	if (IS_ERR(skb)) {
 		if (PTR_ERR(skb) != -EINPROGRESS)
-			DEV_STATS_INC(dev, tx_dropped);
+			dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
 
@@ -3630,19 +3614,21 @@ static int macsec_set_mac_address(struct net_device *dev, void *p)
 	struct macsec_dev *macsec = macsec_priv(dev);
 	struct net_device *real_dev = macsec->real_dev;
 	struct sockaddr *addr = p;
-	u8  old_addr[ETH_ALEN];
 	int err;
 
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	if (dev->flags & IFF_UP) {
-		err = dev_uc_add(real_dev, addr->sa_data);
-		if (err < 0)
-			return err;
-	}
+	if (!(dev->flags & IFF_UP))
+		goto out;
 
-	ether_addr_copy(old_addr, dev->dev_addr);
+	err = dev_uc_add(real_dev, addr->sa_data);
+	if (err < 0)
+		return err;
+
+	dev_uc_del(real_dev, dev->dev_addr);
+
+out:
 	eth_hw_addr_set(dev, addr->sa_data);
 
 	/* If h/w offloading is available, propagate to the device */
@@ -3651,29 +3637,13 @@ static int macsec_set_mac_address(struct net_device *dev, void *p)
 		struct macsec_context ctx;
 
 		ops = macsec_get_ops(macsec, &ctx);
-		if (!ops) {
-			err = -EOPNOTSUPP;
-			goto restore_old_addr;
+		if (ops) {
+			ctx.secy = &macsec->secy;
+			macsec_offload(ops->mdo_upd_secy, &ctx);
 		}
-
-		ctx.secy = &macsec->secy;
-		err = macsec_offload(ops->mdo_upd_secy, &ctx);
-		if (err)
-			goto restore_old_addr;
 	}
 
-	if (dev->flags & IFF_UP)
-		dev_uc_del(real_dev, old_addr);
-
 	return 0;
-
-restore_old_addr:
-	if (dev->flags & IFF_UP)
-		dev_uc_del(real_dev, addr->sa_data);
-
-	eth_hw_addr_set(dev, old_addr);
-
-	return err;
 }
 
 static int macsec_change_mtu(struct net_device *dev, int new_mtu)
@@ -3684,7 +3654,7 @@ static int macsec_change_mtu(struct net_device *dev, int new_mtu)
 	if (macsec->real_dev->mtu - extra < new_mtu)
 		return -ERANGE;
 
-	WRITE_ONCE(dev->mtu, new_mtu);
+	dev->mtu = new_mtu;
 
 	return 0;
 }
@@ -3697,9 +3667,9 @@ static void macsec_get_stats64(struct net_device *dev,
 
 	dev_fetch_sw_netstats(s, dev->tstats);
 
-	s->rx_dropped = DEV_STATS_READ(dev, rx_dropped);
-	s->tx_dropped = DEV_STATS_READ(dev, tx_dropped);
-	s->rx_errors = DEV_STATS_READ(dev, rx_errors);
+	s->rx_dropped = dev->stats.rx_dropped;
+	s->tx_dropped = dev->stats.tx_dropped;
+	s->rx_errors = dev->stats.rx_errors;
 }
 
 static int macsec_get_iflink(const struct net_device *dev)

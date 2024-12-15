@@ -521,14 +521,17 @@ static int bmac_resume(struct macio_dev *mdev)
 static int bmac_set_address(struct net_device *dev, void *addr)
 {
 	struct bmac_data *bp = netdev_priv(dev);
+	unsigned char *p = addr;
 	unsigned short *pWord16;
 	unsigned long flags;
+	int i;
 
 	XXDEBUG(("bmac: enter set_address\n"));
 	spin_lock_irqsave(&bp->lock, flags);
 
-	eth_hw_addr_set(dev, addr);
-
+	for (i = 0; i < 6; ++i) {
+		dev->dev_addr[i] = p[i];
+	}
 	/* load up the hardware address */
 	pWord16  = (unsigned short *)dev->dev_addr;
 	bmwrite(dev, MADD0, *pWord16++);

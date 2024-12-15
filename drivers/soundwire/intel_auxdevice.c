@@ -234,9 +234,6 @@ static int intel_link_probe(struct auxiliary_device *auxdev,
 	cdns->instance = sdw->instance;
 	cdns->msg_count = 0;
 
-	/* single controller for all SoundWire links */
-	bus->controller_id = 0;
-
 	bus->link_id = auxdev->id;
 	bus->clk_stop_timeout = 1;
 
@@ -620,6 +617,8 @@ static int __maybe_unused intel_resume(struct device *dev)
 			bus->link_id);
 		return 0;
 	}
+
+	link_flags = md_flags >> (bus->link_id * 8);
 
 	if (pm_runtime_suspended(dev)) {
 		dev_dbg(dev, "pm_runtime status was suspended, forcing active\n");

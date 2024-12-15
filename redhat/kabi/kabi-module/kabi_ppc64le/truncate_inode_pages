@@ -1,3 +1,2 @@
-#5-
-0x5dcf92bb	truncate_inode_pages	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x2a89540b	truncate_inode_pages	vmlinux	EXPORT_SYMBOL	

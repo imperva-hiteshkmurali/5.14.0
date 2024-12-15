@@ -1,3 +1,2 @@
-#5-
-0x4d343dea	sock_recvmsg	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x677fe158	sock_recvmsg	vmlinux	EXPORT_SYMBOL	

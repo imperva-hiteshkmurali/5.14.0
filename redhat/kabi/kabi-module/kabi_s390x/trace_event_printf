@@ -1,3 +1,2 @@
-#5-
-0xe13d6508	trace_event_printf	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x3931a39b	trace_event_printf	vmlinux	EXPORT_SYMBOL	

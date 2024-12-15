@@ -1,3 +1,2 @@
-#5-
-0x74e13530	rdma_reject	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	
-
+#4-
+0x380e4372	rdma_reject	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	

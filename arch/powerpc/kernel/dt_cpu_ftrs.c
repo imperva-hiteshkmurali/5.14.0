@@ -101,6 +101,7 @@ static struct cpu_spec __initdata base_cpu_spec = {
 	.dcache_bsize		= 32, /* cache info init.             */
 	.num_pmcs		= 0,
 	.pmc_type		= PPC_PMC_DEFAULT,
+	.oprofile_cpu_type	= NULL,
 	.cpu_setup		= NULL,
 	.cpu_restore		= __restore_cpu_cpufeatures,
 	.machine_check_early	= NULL,
@@ -384,6 +385,7 @@ static int __init feat_enable_pmu_power8(struct dt_cpu_feature *f)
 
 	cur_cpu_spec->num_pmcs		= 6;
 	cur_cpu_spec->pmc_type		= PPC_PMC_IBM;
+	cur_cpu_spec->oprofile_cpu_type	= "ppc64/power8";
 
 	return 1;
 }
@@ -419,6 +421,7 @@ static int __init feat_enable_pmu_power9(struct dt_cpu_feature *f)
 
 	cur_cpu_spec->num_pmcs		= 6;
 	cur_cpu_spec->pmc_type		= PPC_PMC_IBM;
+	cur_cpu_spec->oprofile_cpu_type	= "ppc64/power9";
 
 	return 1;
 }
@@ -444,6 +447,7 @@ static int __init feat_enable_pmu_power10(struct dt_cpu_feature *f)
 
 	cur_cpu_spec->num_pmcs          = 6;
 	cur_cpu_spec->pmc_type          = PPC_PMC_IBM;
+	cur_cpu_spec->oprofile_cpu_type = "ppc64/power10";
 
 	return 1;
 }
@@ -451,14 +455,6 @@ static int __init feat_enable_pmu_power10(struct dt_cpu_feature *f)
 static int __init feat_enable_mce_power10(struct dt_cpu_feature *f)
 {
 	cur_cpu_spec->platform = "power10";
-	cur_cpu_spec->machine_check_early = __machine_check_early_realmode_p10;
-
-	return 1;
-}
-
-static int __init feat_enable_mce_power11(struct dt_cpu_feature *f)
-{
-	cur_cpu_spec->platform = "power11";
 	cur_cpu_spec->machine_check_early = __machine_check_early_realmode_p10;
 
 	return 1;
@@ -654,10 +650,8 @@ static struct dt_cpu_feature_match __initdata
 	{"pc-relative-addressing", feat_enable, 0},
 	{"machine-check-power9", feat_enable_mce_power9, 0},
 	{"machine-check-power10", feat_enable_mce_power10, 0},
-	{"machine-check-power11", feat_enable_mce_power11, 0},
 	{"performance-monitor-power9", feat_enable_pmu_power9, 0},
 	{"performance-monitor-power10", feat_enable_pmu_power10, 0},
-	{"performance-monitor-power11", feat_enable_pmu_power10, 0},
 	{"event-based-branch-v3", feat_enable, 0},
 	{"random-number-generator", feat_enable, 0},
 	{"system-call-vectored", feat_disable, 0},
@@ -778,17 +772,10 @@ static __init void cpufeatures_cpu_quirks(void)
 	if ((version & 0xffffefff) == 0x004e0200) {
 		/* DD2.0 has no feature flag */
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_RADIX_PREFETCH_BUG;
-		cur_cpu_spec->cpu_features &= ~(CPU_FTR_DAWR);
 	} else if ((version & 0xffffefff) == 0x004e0201) {
 		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_RADIX_PREFETCH_BUG;
-		cur_cpu_spec->cpu_features &= ~(CPU_FTR_DAWR);
 	} else if ((version & 0xffffefff) == 0x004e0202) {
-		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_HV_ASSIST;
-		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_XER_SO_BUG;
-		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
-		cur_cpu_spec->cpu_features &= ~(CPU_FTR_DAWR);
-	} else if ((version & 0xffffefff) == 0x004e0203) {
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_HV_ASSIST;
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_XER_SO_BUG;
 		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
@@ -798,6 +785,7 @@ static __init void cpufeatures_cpu_quirks(void)
 	}
 
 	if ((version & 0xffff0000) == 0x004e0000) {
+		cur_cpu_spec->cpu_features &= ~(CPU_FTR_DAWR);
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TIDR;
 	}
 

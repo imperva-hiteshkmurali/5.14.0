@@ -381,8 +381,11 @@ static int lis3lv02d_add(struct acpi_device *device)
 	return ret;
 }
 
-static void lis3lv02d_remove(struct acpi_device *device)
+static int lis3lv02d_remove(struct acpi_device *device)
 {
+	if (!device)
+		return -EINVAL;
+
 	i8042_remove_filter(hp_accel_i8042_filter);
 	lis3lv02d_joystick_disable(&lis3_dev);
 	lis3lv02d_poweroff(&lis3_dev);
@@ -390,7 +393,7 @@ static void lis3lv02d_remove(struct acpi_device *device)
 	led_classdev_unregister(&hpled_led.led_classdev);
 	flush_work(&hpled_led.work);
 
-	lis3lv02d_remove_fs(&lis3_dev);
+	return lis3lv02d_remove_fs(&lis3_dev);
 }
 
 

@@ -75,10 +75,14 @@ static void __read_end_io(struct bio *bio)
 	bio_for_each_segment_all(bv, bio, iter_all) {
 		page = bv->bv_page;
 
-		if (bio->bi_status)
+		/* PG_error was set if any post_read step failed */
+		if (bio->bi_status || PageError(page)) {
 			ClearPageUptodate(page);
-		else
+			/* will re-read again later */
+			ClearPageError(page);
+		} else {
 			SetPageUptodate(page);
+		}
 		unlock_page(page);
 	}
 	if (bio->bi_private)
@@ -92,12 +96,10 @@ static void decrypt_work(struct work_struct *work)
 {
 	struct bio_post_read_ctx *ctx =
 		container_of(work, struct bio_post_read_ctx, work);
-	struct bio *bio = ctx->bio;
 
-	if (fscrypt_decrypt_bio(bio))
-		bio_post_read_processing(ctx);
-	else
-		__read_end_io(bio);
+	fscrypt_decrypt_bio(ctx->bio);
+
+	bio_post_read_processing(ctx);
 }
 
 static void verity_work(struct work_struct *work)

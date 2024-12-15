@@ -252,15 +252,12 @@ EXPORT_SYMBOL_GPL(snd_hdac_stream_reset);
 /**
  * snd_hdac_stream_setup -  set up the SD for streaming
  * @azx_dev: HD-audio core stream to set up
- * @code_loading: Whether the stream is for PCM or code-loading.
  */
-int snd_hdac_stream_setup(struct hdac_stream *azx_dev, bool code_loading)
+int snd_hdac_stream_setup(struct hdac_stream *azx_dev)
 {
 	struct hdac_bus *bus = azx_dev->bus;
 	struct snd_pcm_runtime *runtime;
 	unsigned int val;
-	u16 reg;
-	int ret;
 
 	if (azx_dev->substream)
 		runtime = azx_dev->substream->runtime;
@@ -303,15 +300,7 @@ int snd_hdac_stream_setup(struct hdac_stream *azx_dev, bool code_loading)
 	/* set the interrupt enable bits in the descriptor control register */
 	snd_hdac_stream_updatel(azx_dev, SD_CTL, 0, SD_INT_MASK);
 
-	if (!code_loading) {
-		/* Once SDxFMT is set, the controller programs SDxFIFOS to non-zero value. */
-		ret = snd_hdac_stream_readw_poll(azx_dev, SD_FIFOSIZE, reg,
-						 reg & AZX_SD_FIFOSIZE_MASK, 3, 300);
-		if (ret)
-			dev_dbg(bus->dev, "polling SD_FIFOSIZE 0x%04x failed: %d\n",
-				AZX_REG_SD_FIFOSIZE, ret);
-		azx_dev->fifo_size = reg;
-	}
+	azx_dev->fifo_size = snd_hdac_stream_readw(azx_dev, SD_FIFOSIZE) + 1;
 
 	/* when LPIB delay correction gives a small negative value,
 	 * we ignore it; currently set the threshold statically to
@@ -567,7 +556,7 @@ int snd_hdac_stream_setup_periods(struct hdac_stream *azx_dev)
 	return 0;
 
  error:
-	dev_dbg(bus->dev, "Too many BDL entries: buffer=%d, period=%d\n",
+	dev_err(bus->dev, "Too many BDL entries: buffer=%d, period=%d\n",
 		azx_dev->bufsize, period_bytes);
 	return -EINVAL;
 }
@@ -671,15 +660,17 @@ void snd_hdac_stream_timecounter_init(struct hdac_stream *azx_dev,
 	struct hdac_stream *s;
 	bool inited = false;
 	u64 cycle_last = 0;
+	int i = 0;
 
 	list_for_each_entry(s, &bus->stream_list, list) {
-		if ((streams & (1 << s->index))) {
+		if (streams & (1 << i)) {
 			azx_timecounter_init(s, inited, cycle_last);
 			if (!inited) {
 				inited = true;
 				cycle_last = s->tc.cycle_last;
 			}
 		}
+		i++;
 	}
 
 	snd_pcm_gettime(runtime, &runtime->trigger_tstamp);
@@ -724,13 +715,14 @@ void snd_hdac_stream_sync(struct hdac_stream *azx_dev, bool start,
 			  unsigned int streams)
 {
 	struct hdac_bus *bus = azx_dev->bus;
-	int nwait, timeout;
+	int i, nwait, timeout;
 	struct hdac_stream *s;
 
 	for (timeout = 5000; timeout; timeout--) {
 		nwait = 0;
+		i = 0;
 		list_for_each_entry(s, &bus->stream_list, list) {
-			if (!(streams & (1 << s->index)))
+			if (!(streams & (1 << i++)))
 				continue;
 
 			if (start) {
@@ -953,7 +945,7 @@ int snd_hdac_dsp_prepare(struct hdac_stream *azx_dev, unsigned int format,
 	if (err < 0)
 		goto error;
 
-	snd_hdac_stream_setup(azx_dev, true);
+	snd_hdac_stream_setup(azx_dev);
 	snd_hdac_dsp_unlock(azx_dev);
 	return azx_dev->stream_tag;
 

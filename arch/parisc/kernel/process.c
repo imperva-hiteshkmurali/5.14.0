@@ -144,6 +144,10 @@ void flush_thread(void)
 	*/
 }
 
+void release_thread(struct task_struct *dead_task)
+{
+}
+
 /*
  * Idle thread support
  *
@@ -179,11 +183,9 @@ arch_initcall(parisc_idle_init);
  * Copy architecture-specific thread state
  */
 int
-copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
+copy_thread(unsigned long clone_flags, unsigned long usp,
+	    unsigned long kthread_arg, struct task_struct *p, unsigned long tls)
 {
-	unsigned long clone_flags = args->flags;
-	unsigned long usp = args->stack;
-	unsigned long tls = args->tls;
 	struct pt_regs *cregs = &(p->thread.regs);
 	void *stack = task_stack_page(p);
 	
@@ -193,7 +195,7 @@ copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	extern void * const ret_from_kernel_thread;
 	extern void * const child_return;
 
-	if (unlikely(args->fn)) {
+	if (unlikely(p->flags & (PF_KTHREAD | PF_IO_WORKER))) {
 		/* kernel thread */
 		memset(cregs, 0, sizeof(struct pt_regs));
 		if (!usp) /* idle thread */
@@ -208,12 +210,12 @@ copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		 * ret_from_kernel_thread.
 		 */
 #ifdef CONFIG_64BIT
-		cregs->gr[27] = ((unsigned long *)args->fn)[3];
-		cregs->gr[26] = ((unsigned long *)args->fn)[2];
+		cregs->gr[27] = ((unsigned long *)usp)[3];
+		cregs->gr[26] = ((unsigned long *)usp)[2];
 #else
-		cregs->gr[26] = (unsigned long) args->fn;
+		cregs->gr[26] = usp;
 #endif
-		cregs->gr[25] = (unsigned long) args->fn_arg;
+		cregs->gr[25] = kthread_arg;
 	} else {
 		/* user thread */
 		/* usp must be word aligned.  This also prevents users from

@@ -1,3 +1,2 @@
-#5-
-0x45bfc387	netif_device_detach	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x6f703892	netif_device_detach	vmlinux	EXPORT_SYMBOL	

@@ -1204,7 +1204,6 @@ static const struct fb_ops matroxfb_ops = {
 	.owner =	THIS_MODULE,
 	.fb_open =	matroxfb_open,
 	.fb_release =	matroxfb_release,
-	__FB_DEFAULT_IOMEM_OPS_RDWR,
 	.fb_check_var =	matroxfb_check_var,
 	.fb_set_par =	matroxfb_set_par,
 	.fb_setcolreg =	matroxfb_setcolreg,
@@ -1215,7 +1214,6 @@ static const struct fb_ops matroxfb_ops = {
 /*	.fb_copyarea =	<set by matrox_cfbX_init>, */
 /*	.fb_imageblit =	<set by matrox_cfbX_init>, */
 /*	.fb_cursor =	<set by matrox_cfbX_init>, */
-	__FB_DEFAULT_IOMEM_OPS_MMAP,
 };
 
 #define RSDepth(X)	(((X) >> 8) & 0x0F)
@@ -1380,8 +1378,8 @@ static struct video_board vbG200 = {
 	.lowlevel = &matrox_G100
 };
 static struct video_board vbG200eW = {
-	.maxvram = 0x1000000,
-	.maxdisplayable = 0x0800000,
+	.maxvram = 0x800000,
+	.maxdisplayable = 0x800000,
 	.accelID = FB_ACCEL_MATROX_MGAG200,
 	.lowlevel = &matrox_G100
 };
@@ -2316,9 +2314,6 @@ static void __init matroxfb_init_params(void) {
 static int __init matrox_init(void) {
 	int err;
 
-	if (fb_modesetting_disabled("matroxfb"))
-		return -ENODEV;
-
 	matroxfb_init_params();
 	err = pci_register_driver(&matroxfb_driver);
 	dev = -1;	/* accept all new devices... */
@@ -2393,9 +2388,9 @@ static int __init matroxfb_setup(char *options) {
 		else if (!strncmp(this_opt, "mem:", 4))
 			mem = simple_strtoul(this_opt+4, NULL, 0);
 		else if (!strncmp(this_opt, "mode:", 5))
-			strscpy(videomode, this_opt + 5, sizeof(videomode));
+			strlcpy(videomode, this_opt+5, sizeof(videomode));
 		else if (!strncmp(this_opt, "outputs:", 8))
-			strscpy(outputs, this_opt + 8, sizeof(outputs));
+			strlcpy(outputs, this_opt+8, sizeof(outputs));
 		else if (!strncmp(this_opt, "dfp:", 4)) {
 			dfp_type = simple_strtoul(this_opt+4, NULL, 0);
 			dfp = 1;
@@ -2465,7 +2460,7 @@ static int __init matroxfb_setup(char *options) {
 			else if (!strcmp(this_opt, "dfp"))
 				dfp = value;
 			else {
-				strscpy(videomode, this_opt, sizeof(videomode));
+				strlcpy(videomode, this_opt, sizeof(videomode));
 			}
 		}
 	}

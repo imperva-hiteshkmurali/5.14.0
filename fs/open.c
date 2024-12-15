@@ -199,13 +199,13 @@ out:
 	return error;
 }
 
-SYSCALL_DEFINE2(ftruncate, unsigned int, fd, off_t, length)
+SYSCALL_DEFINE2(ftruncate, unsigned int, fd, unsigned long, length)
 {
 	return do_sys_ftruncate(fd, length, 1);
 }
 
 #ifdef CONFIG_COMPAT
-COMPAT_SYSCALL_DEFINE2(ftruncate, unsigned int, fd, compat_off_t, length)
+COMPAT_SYSCALL_DEFINE2(ftruncate, unsigned int, fd, compat_ulong_t, length)
 {
 	return do_sys_ftruncate(fd, length, 1);
 }
@@ -634,20 +634,11 @@ SYSCALL_DEFINE2(fchmod, unsigned int, fd, umode_t, mode)
 	return err;
 }
 
-static int do_fchmodat(int dfd, const char __user *filename, umode_t mode,
-		       unsigned int flags)
+static int do_fchmodat(int dfd, const char __user *filename, umode_t mode)
 {
 	struct path path;
 	int error;
-	unsigned int lookup_flags;
-
-	if (unlikely(flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)))
-		return -EINVAL;
-
-	lookup_flags = (flags & AT_SYMLINK_NOFOLLOW) ? 0 : LOOKUP_FOLLOW;
-	if (flags & AT_EMPTY_PATH)
-		lookup_flags |= LOOKUP_EMPTY;
-
+	unsigned int lookup_flags = LOOKUP_FOLLOW;
 retry:
 	error = user_path_at(dfd, filename, lookup_flags, &path);
 	if (!error) {
@@ -661,21 +652,15 @@ retry:
 	return error;
 }
 
-SYSCALL_DEFINE4(fchmodat2, int, dfd, const char __user *, filename,
-		umode_t, mode, unsigned int, flags)
-{
-	return do_fchmodat(dfd, filename, mode, flags);
-}
-
 SYSCALL_DEFINE3(fchmodat, int, dfd, const char __user *, filename,
 		umode_t, mode)
 {
-	return do_fchmodat(dfd, filename, mode, 0);
+	return do_fchmodat(dfd, filename, mode);
 }
 
 SYSCALL_DEFINE2(chmod, const char __user *, filename, umode_t, mode)
 {
-	return do_fchmodat(AT_FDCWD, filename, mode, 0);
+	return do_fchmodat(AT_FDCWD, filename, mode);
 }
 
 int chown_common(const struct path *path, uid_t user, gid_t group)
@@ -1384,7 +1369,7 @@ SYSCALL_DEFINE2(creat, const char __user *, pathname, umode_t, mode)
  * "id" is the POSIX thread ID. We use the
  * files pointer for this..
  */
-static int filp_flush(struct file *filp, fl_owner_t id)
+int filp_close(struct file *filp, fl_owner_t id)
 {
 	int retval = 0;
 
@@ -1400,18 +1385,10 @@ static int filp_flush(struct file *filp, fl_owner_t id)
 		dnotify_flush(filp, id);
 		locks_remove_posix(filp, id);
 	}
-	return retval;
-}
-
-int filp_close(struct file *filp, fl_owner_t id)
-{
-	int retval;
-
-	retval = filp_flush(filp, id);
 	fput(filp);
-
 	return retval;
 }
+
 EXPORT_SYMBOL(filp_close);
 
 /*
@@ -1421,20 +1398,7 @@ EXPORT_SYMBOL(filp_close);
  */
 SYSCALL_DEFINE1(close, unsigned int, fd)
 {
-	int retval;
-	struct file *file;
-
-	file = close_fd_get_file(fd);
-	if (!file)
-		return -EBADF;
-
-	retval = filp_flush(file, current->files);
-
-	/*
-	 * We're returning to user space. Don't bother
-	 * with any delayed fput() cases.
-	 */
-	__fput_sync(file);
+	int retval = close_fd(fd);
 
 	/* can't restart close syscall because file table entry was cleared */
 	if (unlikely(retval == -ERESTARTSYS ||

@@ -1,3 +1,2 @@
-#5-
-0x57c94f2c	gnss_register_device	drivers/gnss/gnss	EXPORT_SYMBOL_GPL	
-
+#4-
+0x365289cb	gnss_register_device	drivers/gnss/gnss	EXPORT_SYMBOL_GPL	

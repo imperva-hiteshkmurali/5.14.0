@@ -1,3 +1,2 @@
-#5-
-0x43ce065c	get_fs_type	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf9019206	get_fs_type	vmlinux	EXPORT_SYMBOL	

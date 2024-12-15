@@ -21,7 +21,6 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_bridge.h>
-#include <drm/drm_edid.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
@@ -266,8 +265,10 @@ static struct mipi_dsi_device *lt9611uxc_attach_dsi(struct lt9611uxc *lt9611uxc,
 	int ret;
 
 	host = of_find_mipi_dsi_host_by_node(dsi_node);
-	if (!host)
-		return ERR_PTR(dev_err_probe(dev, -EPROBE_DEFER, "failed to find dsi host\n"));
+	if (!host) {
+		dev_err(dev, "failed to find dsi host\n");
+		return ERR_PTR(-EPROBE_DEFER);
+	}
 
 	dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
 	if (IS_ERR(dsi)) {
@@ -292,13 +293,13 @@ static struct mipi_dsi_device *lt9611uxc_attach_dsi(struct lt9611uxc *lt9611uxc,
 static int lt9611uxc_connector_get_modes(struct drm_connector *connector)
 {
 	struct lt9611uxc *lt9611uxc = connector_to_lt9611uxc(connector);
-	const struct drm_edid *drm_edid;
-	int count;
+	unsigned int count;
+	struct edid *edid;
 
-	drm_edid = drm_bridge_edid_read(&lt9611uxc->bridge, connector);
-	drm_edid_connector_update(connector, drm_edid);
-	count = drm_edid_connector_add_modes(connector);
-	drm_edid_free(drm_edid);
+	edid = lt9611uxc->bridge.funcs->get_edid(&lt9611uxc->bridge, connector);
+	drm_connector_update_edid_property(connector, edid);
+	count = drm_add_edid_modes(connector, edid);
+	kfree(edid);
 
 	return count;
 }
@@ -493,8 +494,8 @@ static int lt9611uxc_get_edid_block(void *data, u8 *buf, unsigned int block, siz
 	return 0;
 };
 
-static const struct drm_edid *lt9611uxc_bridge_edid_read(struct drm_bridge *bridge,
-							 struct drm_connector *connector)
+static struct edid *lt9611uxc_bridge_get_edid(struct drm_bridge *bridge,
+					      struct drm_connector *connector)
 {
 	struct lt9611uxc *lt9611uxc = bridge_to_lt9611uxc(bridge);
 	int ret;
@@ -508,7 +509,7 @@ static const struct drm_edid *lt9611uxc_bridge_edid_read(struct drm_bridge *brid
 		return NULL;
 	}
 
-	return drm_edid_read_custom(connector, lt9611uxc_get_edid_block, lt9611uxc);
+	return drm_do_get_edid(connector, lt9611uxc_get_edid_block, lt9611uxc);
 }
 
 static const struct drm_bridge_funcs lt9611uxc_bridge_funcs = {
@@ -516,7 +517,7 @@ static const struct drm_bridge_funcs lt9611uxc_bridge_funcs = {
 	.mode_valid = lt9611uxc_bridge_mode_valid,
 	.mode_set = lt9611uxc_bridge_mode_set,
 	.detect = lt9611uxc_bridge_detect,
-	.edid_read = lt9611uxc_bridge_edid_read,
+	.get_edid = lt9611uxc_bridge_get_edid,
 };
 
 static int lt9611uxc_parse_dt(struct device *dev,

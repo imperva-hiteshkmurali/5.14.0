@@ -1873,7 +1873,7 @@ sisfb_get_fix(struct fb_fix_screeninfo *fix, int con, struct fb_info *info)
 
 	memset(fix, 0, sizeof(struct fb_fix_screeninfo));
 
-	strscpy(fix->id, ivideo->myid, sizeof(fix->id));
+	strlcpy(fix->id, ivideo->myid, sizeof(fix->id));
 
 	mutex_lock(&info->mm_lock);
 	fix->smem_start  = ivideo->video_base + ivideo->video_offset;
@@ -1911,7 +1911,6 @@ static const struct fb_ops sisfb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_open	= sisfb_open,
 	.fb_release	= sisfb_release,
-	__FB_DEFAULT_IOMEM_OPS_RDWR,
 	.fb_check_var	= sisfb_check_var,
 	.fb_set_par	= sisfb_set_par,
 	.fb_setcolreg	= sisfb_setcolreg,
@@ -1924,8 +1923,7 @@ static const struct fb_ops sisfb_ops = {
 #ifdef SIS_NEW_CONFIG_COMPAT
 	.fb_compat_ioctl= sisfb_ioctl,
 #endif
-	.fb_ioctl	= sisfb_ioctl,
-	__FB_DEFAULT_IOMEM_OPS_MMAP,
+	.fb_ioctl	= sisfb_ioctl
 };
 
 /* ---------------- Chip generation dependent routines ---------------- */
@@ -5874,7 +5872,7 @@ static int sisfb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			ivideo->cardnumber++;
 	}
 
-	strscpy(ivideo->myid, chipinfo->chip_name, sizeof(ivideo->myid));
+	strlcpy(ivideo->myid, chipinfo->chip_name, sizeof(ivideo->myid));
 
 	ivideo->warncount = 0;
 	ivideo->chip_id = pdev->device;
@@ -6466,11 +6464,14 @@ error_3:	vfree(ivideo->bios_abase);
 		sisfb_initaccel(ivideo);
 
 #if defined(FBINFO_HWACCEL_DISABLED) && defined(FBINFO_HWACCEL_XPAN)
-		sis_fb_info->flags = FBINFO_HWACCEL_YPAN	|
+		sis_fb_info->flags = FBINFO_DEFAULT 		|
+				     FBINFO_HWACCEL_YPAN 	|
 				     FBINFO_HWACCEL_XPAN 	|
 				     FBINFO_HWACCEL_COPYAREA 	|
 				     FBINFO_HWACCEL_FILLRECT 	|
 				     ((ivideo->accel) ? 0 : FBINFO_HWACCEL_DISABLED);
+#else
+		sis_fb_info->flags = FBINFO_FLAG_DEFAULT;
 #endif
 		sis_fb_info->var = ivideo->default_var;
 		sis_fb_info->fix = ivideo->sisfb_fix;
@@ -6579,12 +6580,7 @@ static int __init sisfb_init(void)
 {
 #ifndef MODULE
 	char *options = NULL;
-#endif
 
-	if (fb_modesetting_disabled("sisfb"))
-		return -ENODEV;
-
-#ifndef MODULE
 	if(fb_get_options("sisfb", &options))
 		return -ENODEV;
 

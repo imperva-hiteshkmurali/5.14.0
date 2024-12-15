@@ -362,6 +362,7 @@ again:
 		 * values.
 		 */
 		pmd = pmdp_get_lockless(pmdp);
+		barrier();
 		if (!pmd_devmap(pmd) && !pmd_trans_huge(pmd))
 			goto again;
 
@@ -562,7 +563,6 @@ static const struct mm_walk_ops hmm_walk_ops = {
 	.pte_hole	= hmm_vma_walk_hole,
 	.hugetlb_entry	= hmm_vma_walk_hugetlb_entry,
 	.test_walk	= hmm_vma_walk_test,
-	.walk_lock	= PGWALK_RDLOCK,
 };
 
 /**

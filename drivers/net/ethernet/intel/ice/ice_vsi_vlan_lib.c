@@ -132,7 +132,6 @@ static int ice_vsi_manage_vlan_stripping(struct ice_vsi *vsi, bool ena)
 {
 	struct ice_hw *hw = &vsi->back->hw;
 	struct ice_vsi_ctx *ctxt;
-	u8 *ivf;
 	int err;
 
 	/* do not allow modifying VLAN stripping when a port VLAN is configured
@@ -145,24 +144,19 @@ static int ice_vsi_manage_vlan_stripping(struct ice_vsi *vsi, bool ena)
 	if (!ctxt)
 		return -ENOMEM;
 
-	ivf = &ctxt->info.inner_vlan_flags;
-
 	/* Here we are configuring what the VSI should do with the VLAN tag in
 	 * the Rx packet. We can either leave the tag in the packet or put it in
 	 * the Rx descriptor.
 	 */
-	if (ena) {
+	if (ena)
 		/* Strip VLAN tag from Rx packet and put it in the desc */
-		*ivf = FIELD_PREP(ICE_AQ_VSI_INNER_VLAN_EMODE_M,
-				  ICE_AQ_VSI_INNER_VLAN_EMODE_STR_BOTH);
-	} else {
+		ctxt->info.inner_vlan_flags = ICE_AQ_VSI_INNER_VLAN_EMODE_STR_BOTH;
+	else
 		/* Disable stripping. Leave tag in packet */
-		*ivf = FIELD_PREP(ICE_AQ_VSI_INNER_VLAN_EMODE_M,
-				  ICE_AQ_VSI_INNER_VLAN_EMODE_NOTHING);
-	}
+		ctxt->info.inner_vlan_flags = ICE_AQ_VSI_INNER_VLAN_EMODE_NOTHING;
 
 	/* Allow all packets untagged/tagged */
-	*ivf |= ICE_AQ_VSI_INNER_VLAN_TX_MODE_ALL;
+	ctxt->info.inner_vlan_flags |= ICE_AQ_VSI_INNER_VLAN_TX_MODE_ALL;
 
 	ctxt->info.valid_sections = cpu_to_le16(ICE_AQ_VSI_PROP_VLAN_VALID);
 
@@ -488,11 +482,10 @@ int ice_vsi_ena_outer_stripping(struct ice_vsi *vsi, u16 tpid)
 	ctxt->info.outer_vlan_flags = vsi->info.outer_vlan_flags &
 		~(ICE_AQ_VSI_OUTER_VLAN_EMODE_M | ICE_AQ_VSI_OUTER_TAG_TYPE_M);
 	ctxt->info.outer_vlan_flags |=
-		/* we want EMODE_SHOW_BOTH, but that value is zero, so the line
-		 * above clears it well enough that we don't need to try to set
-		 * zero here, so just do the tag type
-		 */
-		 FIELD_PREP(ICE_AQ_VSI_OUTER_TAG_TYPE_M, tag_type);
+		((ICE_AQ_VSI_OUTER_VLAN_EMODE_SHOW_BOTH <<
+		  ICE_AQ_VSI_OUTER_VLAN_EMODE_S) |
+		 ((tag_type << ICE_AQ_VSI_OUTER_TAG_TYPE_S) &
+		  ICE_AQ_VSI_OUTER_TAG_TYPE_M));
 
 	err = ice_update_vsi(hw, vsi->idx, ctxt, NULL);
 	if (err)
@@ -597,9 +590,11 @@ int ice_vsi_ena_outer_insertion(struct ice_vsi *vsi, u16 tpid)
 		  ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M |
 		  ICE_AQ_VSI_OUTER_TAG_TYPE_M);
 	ctxt->info.outer_vlan_flags |=
-		FIELD_PREP(ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M,
-			   ICE_AQ_VSI_OUTER_VLAN_TX_MODE_ALL) |
-		FIELD_PREP(ICE_AQ_VSI_OUTER_TAG_TYPE_M, tag_type);
+		((ICE_AQ_VSI_OUTER_VLAN_TX_MODE_ALL <<
+		  ICE_AQ_VSI_OUTER_VLAN_TX_MODE_S) &
+		 ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M) |
+		((tag_type << ICE_AQ_VSI_OUTER_TAG_TYPE_S) &
+		 ICE_AQ_VSI_OUTER_TAG_TYPE_M);
 
 	err = ice_update_vsi(hw, vsi->idx, ctxt, NULL);
 	if (err)
@@ -648,8 +643,9 @@ int ice_vsi_dis_outer_insertion(struct ice_vsi *vsi)
 		  ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M);
 	ctxt->info.outer_vlan_flags |=
 		ICE_AQ_VSI_OUTER_VLAN_BLOCK_TX_DESC |
-		FIELD_PREP(ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M,
-			   ICE_AQ_VSI_OUTER_VLAN_TX_MODE_ALL);
+		((ICE_AQ_VSI_OUTER_VLAN_TX_MODE_ALL <<
+		  ICE_AQ_VSI_OUTER_VLAN_TX_MODE_S) &
+		 ICE_AQ_VSI_OUTER_VLAN_TX_MODE_M);
 
 	err = ice_update_vsi(hw, vsi->idx, ctxt, NULL);
 	if (err)
@@ -707,7 +703,8 @@ __ice_vsi_set_outer_port_vlan(struct ice_vsi *vsi, u16 vlan_info, u16 tpid)
 	ctxt->info.outer_vlan_flags =
 		(ICE_AQ_VSI_OUTER_VLAN_EMODE_SHOW <<
 		 ICE_AQ_VSI_OUTER_VLAN_EMODE_S) |
-		FIELD_PREP(ICE_AQ_VSI_OUTER_TAG_TYPE_M, tag_type) |
+		((tag_type << ICE_AQ_VSI_OUTER_TAG_TYPE_S) &
+		 ICE_AQ_VSI_OUTER_TAG_TYPE_M) |
 		ICE_AQ_VSI_OUTER_VLAN_BLOCK_TX_DESC |
 		(ICE_AQ_VSI_OUTER_VLAN_TX_MODE_ACCEPTUNTAGGED <<
 		 ICE_AQ_VSI_OUTER_VLAN_TX_MODE_S) |

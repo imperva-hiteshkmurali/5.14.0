@@ -13,6 +13,7 @@ struct dev_dax *__dax_pmem_probe(struct device *dev, enum dev_dax_subsys subsys)
 	int rc, id, region_id;
 	resource_size_t offset;
 	struct nd_pfn_sb *pfn_sb;
+	struct dev_dax *dev_dax;
 	struct dev_dax_data data;
 	struct nd_namespace_io *nsio;
 	struct dax_region *dax_region;
@@ -64,9 +65,13 @@ struct dev_dax *__dax_pmem_probe(struct device *dev, enum dev_dax_subsys subsys)
 		.pgmap = &pgmap,
 		.subsys = subsys,
 		.size = range_len(&range),
-		.memmap_on_memory = false,
 	};
-	return devm_create_dev_dax(&data);
+	dev_dax = devm_create_dev_dax(&data);
+
+	/* child dev_dax instances now own the lifetime of the dax_region */
+	dax_region_put(dax_region);
+
+	return dev_dax;
 }
 EXPORT_SYMBOL_GPL(__dax_pmem_probe);
 

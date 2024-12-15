@@ -1,3 +1,2 @@
-#5-
-0x679cdc80	devlink_resource_occ_get_register	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x04986a45	devlink_resource_occ_get_register	vmlinux	EXPORT_SYMBOL_GPL	

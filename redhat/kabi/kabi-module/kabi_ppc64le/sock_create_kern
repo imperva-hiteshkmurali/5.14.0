@@ -1,3 +1,2 @@
-#5-
-0x731c5921	sock_create_kern	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x2d0fa139	sock_create_kern	vmlinux	EXPORT_SYMBOL	

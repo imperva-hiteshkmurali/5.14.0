@@ -1141,8 +1141,6 @@ void tcp_wfree(struct sk_buff *skb)
 	struct sock *sk = skb->sk;
 	struct tcp_sock *tp = tcp_sk(sk);
 	unsigned long flags, nval, oval;
-	struct tsq_tasklet *tsq;
-	bool empty;
 
 	/* Keep one reference on sk_wmem_alloc.
 	 * Will be released by sk_free() from here or tcp_tasklet_func()
@@ -1159,23 +1157,28 @@ void tcp_wfree(struct sk_buff *skb)
 	if (refcount_read(&sk->sk_wmem_alloc) >= SKB_TRUESIZE(1) && this_cpu_ksoftirqd() == current)
 		goto out;
 
-	oval = smp_load_acquire(&sk->sk_tsq_flags);
-	do {
+	for (oval = READ_ONCE(sk->sk_tsq_flags);; oval = nval) {
+		struct tsq_tasklet *tsq;
+		bool empty;
+
 		if (!(oval & TSQF_THROTTLED) || (oval & TSQF_QUEUED))
 			goto out;
 
 		nval = (oval & ~TSQF_THROTTLED) | TSQF_QUEUED;
-	} while (!try_cmpxchg(&sk->sk_tsq_flags, &oval, nval));
+		nval = cmpxchg(&sk->sk_tsq_flags, oval, nval);
+		if (nval != oval)
+			continue;
 
-	/* queue this socket to tasklet queue */
-	local_irq_save(flags);
-	tsq = this_cpu_ptr(&tsq_tasklet);
-	empty = list_empty(&tsq->head);
-	list_add(&tp->tsq_node, &tsq->head);
-	if (empty)
-		tasklet_schedule(&tsq->tasklet);
-	local_irq_restore(flags);
-	return;
+		/* queue this socket to tasklet queue */
+		local_irq_save(flags);
+		tsq = this_cpu_ptr(&tsq_tasklet);
+		empty = list_empty(&tsq->head);
+		list_add(&tp->tsq_node, &tsq->head);
+		if (empty)
+			tasklet_schedule(&tsq->tasklet);
+		local_irq_restore(flags);
+		return;
+	}
 out:
 	sk_free(sk);
 }
@@ -2490,18 +2493,6 @@ static bool tcp_pacing_check(struct sock *sk)
 	return true;
 }
 
-static bool tcp_rtx_queue_empty_or_single_skb(const struct sock *sk)
-{
-	const struct rb_node *node = sk->tcp_rtx_queue.rb_node;
-
-	/* No skb in the rtx queue. */
-	if (!node)
-		return true;
-
-	/* Only one skb in rtx queue. */
-	return !node->rb_left && !node->rb_right;
-}
-
 /* TCP Small Queues :
  * Control number of packets in qdisc/devices to two packets / or ~1 ms.
  * (These limits are doubled for retransmits)
@@ -2539,12 +2530,12 @@ static bool tcp_small_queue_check(struct sock *sk, const struct sk_buff *skb,
 		limit += extra_bytes;
 	}
 	if (refcount_read(&sk->sk_wmem_alloc) > limit) {
-		/* Always send skb if rtx queue is empty or has one skb.
+		/* Always send skb if rtx queue is empty.
 		 * No need to wait for TX completion to call us back,
 		 * after softirq/tasklet schedule.
 		 * This helps when TX completions are delayed too much.
 		 */
-		if (tcp_rtx_queue_empty_or_single_skb(sk))
+		if (tcp_rtx_queue_empty(sk))
 			return false;
 
 		set_bit(TSQ_THROTTLED, &sk->sk_tsq_flags);
@@ -3484,9 +3475,7 @@ void tcp_send_fin(struct sock *sk)
 			return;
 		}
 	} else {
-		skb = alloc_skb_fclone(MAX_TCP_HEADER,
-				       sk_gfp_mask(sk, GFP_ATOMIC |
-						       __GFP_NOWARN));
+		skb = alloc_skb_fclone(MAX_TCP_HEADER, sk->sk_allocation);
 		if (unlikely(!skb))
 			return;
 
@@ -3506,8 +3495,7 @@ void tcp_send_fin(struct sock *sk)
  * was unread data in the receive queue.  This behavior is recommended
  * by RFC 2525, section 2.17.  -DaveM
  */
-void tcp_send_active_reset(struct sock *sk, gfp_t priority,
-			   enum sk_rst_reason reason)
+void tcp_send_active_reset(struct sock *sk, gfp_t priority)
 {
 	struct sk_buff *skb;
 
@@ -3532,7 +3520,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority,
 	/* skb of trace_tcp_send_reset() keeps the skb that caused RST,
 	 * skb here is different to the troublesome skb, so use NULL
 	 */
-	trace_tcp_send_reset(sk, NULL, SK_RST_REASON_NOT_SPECIFIED);
+	trace_tcp_send_reset(sk, NULL);
 }
 
 /* Send a crossed SYN-ACK during socket establishment.

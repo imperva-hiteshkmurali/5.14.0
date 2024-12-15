@@ -1727,10 +1727,9 @@ static struct hist_field *create_hist_field(struct hist_trigger_data *hist_data,
 		if (!hist_field->type)
 			goto free;
 
-		if (field->filter_type == FILTER_STATIC_STRING) {
+		if (field->filter_type == FILTER_STATIC_STRING)
 			hist_field->fn = hist_field_string;
-			hist_field->size = field->size;
-		} else if (field->filter_type == FILTER_DYN_STRING)
+		else if (field->filter_type == FILTER_DYN_STRING)
 			hist_field->fn = hist_field_dynstring;
 		else
 			hist_field->fn = hist_field_pstring;
@@ -2688,10 +2687,8 @@ static inline void __update_field_vars(struct tracing_map_elt *elt,
 		if (val->flags & HIST_FIELD_FL_STRING) {
 			char *str = elt_data->field_var_str[j++];
 			char *val_str = (char *)(uintptr_t)var_val;
-			unsigned int size;
 
-			size = min(val->size, STR_VAR_LEN_MAX);
-			strscpy(str, val_str, size);
+			strscpy(str, val_str, STR_VAR_LEN_MAX);
 			var_val = (u64)(uintptr_t)str;
 		}
 		tracing_map_set_var(elt, var_idx, var_val);
@@ -3416,7 +3413,7 @@ static int check_synth_field(struct synth_event *event,
 
 	if (strcmp(field->type, hist_field->type) != 0) {
 		if (field->size != hist_field->size ||
-		    (!field->is_string && field->is_signed != hist_field->is_signed))
+		    field->is_signed != hist_field->is_signed)
 			return -EINVAL;
 	}
 
@@ -4540,7 +4537,6 @@ static void hist_trigger_elt_update(struct hist_trigger_data *hist_data,
 			if (hist_field->flags & HIST_FIELD_FL_STRING) {
 				unsigned int str_start, var_str_idx, idx;
 				char *str, *val_str;
-				unsigned int size;
 
 				str_start = hist_data->n_field_var_str +
 					hist_data->n_save_var_str;
@@ -4549,9 +4545,7 @@ static void hist_trigger_elt_update(struct hist_trigger_data *hist_data,
 
 				str = elt_data->field_var_str[idx];
 				val_str = (char *)(uintptr_t)hist_val;
-
-				size = min(hist_field->size, STR_VAR_LEN_MAX);
-				strscpy(str, val_str, size);
+				strscpy(str, val_str, STR_VAR_LEN_MAX);
 
 				hist_val = (u64)(uintptr_t)str;
 			}
@@ -5901,7 +5895,7 @@ enable:
 	/* Just return zero, not the number of registered triggers */
 	ret = 0;
  out:
-	if (ret == 0 && glob[0])
+	if (ret == 0)
 		hist_err_clear();
 
 	return ret;

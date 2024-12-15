@@ -1,3 +1,2 @@
-#5-
-0x3e54c39c	tty_register_driver	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x3501ee95	tty_register_driver	vmlinux	EXPORT_SYMBOL	

@@ -470,7 +470,7 @@ static u16 get_char(struct vc_data *vc, u16 *pos, u_char *attribs)
 			c |= 0x100;
 		}
 
-		ch = inverse_translate(vc, c, true);
+		ch = inverse_translate(vc, c, 1);
 		*attribs = (w & 0xff00) >> 8;
 	}
 	return ch;

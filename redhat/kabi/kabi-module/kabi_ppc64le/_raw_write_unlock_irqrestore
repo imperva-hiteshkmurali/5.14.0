@@ -1,3 +1,2 @@
-#5-
-0x37371741	_raw_write_unlock_irqrestore	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xeb078aee	_raw_write_unlock_irqrestore	vmlinux	EXPORT_SYMBOL	

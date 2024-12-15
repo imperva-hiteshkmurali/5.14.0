@@ -1,3 +1,2 @@
-#5-
-0x6c4114de	bio_kmalloc	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xde43737e	bio_kmalloc	vmlinux	EXPORT_SYMBOL	

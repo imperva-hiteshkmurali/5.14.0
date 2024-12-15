@@ -1,3 +1,2 @@
-#5-
-0x714a32a7	devm_kmalloc	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x0445f5d4	devm_kmalloc	vmlinux	EXPORT_SYMBOL_GPL	

@@ -152,11 +152,13 @@ static void gdm_tty_send_complete(void *arg)
 	tty_port_tty_wakeup(&gdm->port);
 }
 
-static ssize_t gdm_tty_write(struct tty_struct *tty, const u8 *buf, size_t len)
+static int gdm_tty_write(struct tty_struct *tty, const unsigned char *buf,
+			 int len)
 {
 	struct gdm *gdm = tty->driver_data;
-	size_t remain = len;
-	size_t sent_len = 0;
+	int remain = len;
+	int sent_len = 0;
+	int sending_len = 0;
 
 	if (!GDM_TTY_READY(gdm))
 		return -ENODEV;
@@ -165,7 +167,7 @@ static ssize_t gdm_tty_write(struct tty_struct *tty, const u8 *buf, size_t len)
 		return 0;
 
 	while (1) {
-		size_t sending_len = min_t(size_t, MUX_TX_MAX_SIZE, remain);
+		sending_len = min(MUX_TX_MAX_SIZE, remain);
 		gdm->tty_dev->send_func(gdm->tty_dev->priv_dev,
 					(void *)(buf + sent_len),
 					sending_len,
@@ -297,7 +299,7 @@ int register_lte_tty_driver(void)
 
 		ret = tty_register_driver(tty_driver);
 		if (ret) {
-			tty_driver_kref_put(tty_driver);
+			put_tty_driver(tty_driver);
 			return ret;
 		}
 
@@ -316,7 +318,7 @@ void unregister_lte_tty_driver(void)
 		tty_driver = gdm_driver[i];
 		if (tty_driver) {
 			tty_unregister_driver(tty_driver);
-			tty_driver_kref_put(tty_driver);
+			put_tty_driver(tty_driver);
 		}
 	}
 }

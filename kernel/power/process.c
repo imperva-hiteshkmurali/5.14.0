@@ -53,7 +53,8 @@ static int try_to_freeze_tasks(bool user_only)
 			if (p == current || !freeze_task(p))
 				continue;
 
-			todo++;
+			if (!freezer_should_skip(p))
+				todo++;
 		}
 		read_unlock(&tasklist_lock);
 
@@ -93,12 +94,13 @@ static int try_to_freeze_tasks(bool user_only)
 		       todo - wq_busy, wq_busy);
 
 		if (wq_busy)
-			show_freezable_workqueues();
+			show_all_workqueues();
 
 		if (!wakeup || pm_debug_messages_on) {
 			read_lock(&tasklist_lock);
 			for_each_process_thread(g, p) {
-				if (p != current && freezing(p) && !frozen(p))
+				if (p != current && !freezer_should_skip(p)
+				    && freezing(p) && !frozen(p))
 					sched_show_task(p);
 			}
 			read_unlock(&tasklist_lock);
@@ -130,7 +132,7 @@ int freeze_processes(void)
 	current->flags |= PF_SUSPEND_TASK;
 
 	if (!pm_freezing)
-		static_branch_inc(&freezer_active);
+		atomic_inc(&system_freezing_cnt);
 
 	pm_wakeup_clear(0);
 	pr_info("Freezing user space processes ... ");
@@ -191,7 +193,7 @@ void thaw_processes(void)
 
 	trace_suspend_resume(TPS("thaw_processes"), 0, true);
 	if (pm_freezing)
-		static_branch_dec(&freezer_active);
+		atomic_dec(&system_freezing_cnt);
 	pm_freezing = false;
 	pm_nosig_freezing = false;
 
@@ -201,6 +203,8 @@ void thaw_processes(void)
 
 	__usermodehelper_set_disable_depth(UMH_FREEZING);
 	thaw_workqueues();
+
+	cpuset_wait_for_hotplug();
 
 	read_lock(&tasklist_lock);
 	for_each_process_thread(g, p) {

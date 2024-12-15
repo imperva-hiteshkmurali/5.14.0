@@ -885,8 +885,8 @@ static bool can327_is_valid_rx_char(u8 c)
  * This will not be re-entered while running, but other ldisc
  * functions may be called in parallel.
  */
-static void can327_ldisc_rx(struct tty_struct *tty, const u8 *cp,
-			    const u8 *fp, size_t count)
+static void can327_ldisc_rx(struct tty_struct *tty, const unsigned char *cp,
+			    const char *fp, int count)
 {
 	struct can327 *elm = (struct can327 *)tty->disc_data;
 	size_t first_new_char_idx;
@@ -901,17 +901,15 @@ static void can327_ldisc_rx(struct tty_struct *tty, const u8 *cp,
 	 */
 	first_new_char_idx = elm->rxfill;
 
-	while (count--) {
-		if (elm->rxfill >= CAN327_SIZE_RXBUF) {
-			netdev_err(elm->dev,
-				   "Receive buffer overflowed. Bad chip or wiring? count = %zu",
-				   count);
-			goto uart_failure;
-		}
+	while (count-- && elm->rxfill < CAN327_SIZE_RXBUF) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev,
 				   "Error in received character stream. Check your wiring.");
-			goto uart_failure;
+
+			can327_uart_side_failure(elm);
+
+			spin_unlock_bh(&elm->lock);
+			return;
 		}
 
 		/* Ignore NUL characters, which the PIC microcontroller may
@@ -927,7 +925,10 @@ static void can327_ldisc_rx(struct tty_struct *tty, const u8 *cp,
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
-				goto uart_failure;
+				can327_uart_side_failure(elm);
+
+				spin_unlock_bh(&elm->lock);
+				return;
 			}
 
 			elm->rxbuf[elm->rxfill++] = *cp;
@@ -936,12 +937,18 @@ static void can327_ldisc_rx(struct tty_struct *tty, const u8 *cp,
 		cp++;
 	}
 
-	can327_parse_rxbuf(elm, first_new_char_idx);
-	spin_unlock_bh(&elm->lock);
+	if (count >= 0) {
+		netdev_err(elm->dev,
+			   "Receive buffer overflowed. Bad chip or wiring? count = %i",
+			   count);
 
-	return;
-uart_failure:
-	can327_uart_side_failure(elm);
+		can327_uart_side_failure(elm);
+
+		spin_unlock_bh(&elm->lock);
+		return;
+	}
+
+	can327_parse_rxbuf(elm, first_new_char_idx);
 	spin_unlock_bh(&elm->lock);
 }
 

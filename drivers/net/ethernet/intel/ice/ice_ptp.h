@@ -140,7 +140,6 @@ enum ice_tx_tstamp_work {
  * @has_ready_bitmap: if true, the hardware has a valid Tx timestamp ready
  *                    bitmap register. If false, fall back to verifying new
  *                    timestamp values against previously cached copy.
- * @last_ll_ts_idx_read: index of the last LL TS read by the FW
  */
 struct ice_ptp_tx {
 	spinlock_t lock; /* lock protecting in_use bitmap */
@@ -153,7 +152,6 @@ struct ice_ptp_tx {
 	u8 init : 1;
 	u8 calibrating : 1;
 	u8 has_ready_bitmap : 1;
-	s8 last_ll_ts_idx_read;
 };
 
 /* Quad and port information for initializing timestamp blocks */
@@ -319,12 +317,10 @@ void ice_ptp_restore_timestamp_mode(struct ice_pf *pf);
 
 void ice_ptp_extts_event(struct ice_pf *pf);
 s8 ice_ptp_request_ts(struct ice_ptp_tx *tx, struct sk_buff *skb);
-void ice_ptp_req_tx_single_tstamp(struct ice_ptp_tx *tx, u8 idx);
-void ice_ptp_complete_tx_single_tstamp(struct ice_ptp_tx *tx);
 enum ice_tx_tstamp_work ice_ptp_process_ts(struct ice_pf *pf);
 
 u64 ice_ptp_get_rx_hwts(const union ice_32b_rx_flex_desc *rx_desc,
-			const struct ice_pkt_ctx *pkt_ctx);
+			struct ice_rx_ring *rx_ring);
 void ice_ptp_rebuild(struct ice_pf *pf, enum ice_reset_req reset_type);
 void ice_ptp_prepare_for_reset(struct ice_pf *pf,
 			       enum ice_reset_req reset_type);
@@ -350,11 +346,6 @@ ice_ptp_request_ts(struct ice_ptp_tx *tx, struct sk_buff *skb)
 	return -1;
 }
 
-static inline void ice_ptp_req_tx_single_tstamp(struct ice_ptp_tx *tx, u8 idx)
-{ }
-
-static inline void ice_ptp_complete_tx_single_tstamp(struct ice_ptp_tx *tx) { }
-
 static inline bool ice_ptp_process_ts(struct ice_pf *pf)
 {
 	return true;
@@ -362,7 +353,7 @@ static inline bool ice_ptp_process_ts(struct ice_pf *pf)
 
 static inline u64
 ice_ptp_get_rx_hwts(const union ice_32b_rx_flex_desc *rx_desc,
-		    const struct ice_pkt_ctx *pkt_ctx)
+		    struct ice_rx_ring *rx_ring)
 {
 	return 0;
 }

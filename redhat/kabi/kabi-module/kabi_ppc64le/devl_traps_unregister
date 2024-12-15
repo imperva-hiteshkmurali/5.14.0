@@ -1,3 +1,2 @@
-#5-
-0x630290c9	devl_traps_unregister	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0xc5d0e111	devl_traps_unregister	vmlinux	EXPORT_SYMBOL_GPL	

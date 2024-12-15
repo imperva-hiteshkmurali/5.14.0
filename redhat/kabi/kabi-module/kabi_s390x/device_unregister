@@ -1,3 +1,2 @@
-#5-
-0xe79f7b2a	device_unregister	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x23f2fb42	device_unregister	vmlinux	EXPORT_SYMBOL_GPL	

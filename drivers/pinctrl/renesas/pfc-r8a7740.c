@@ -3681,7 +3681,7 @@ static const struct r8a7740_portcr_group r8a7740_portcr_offsets[] = {
 	{ 83, 0x0000 }, { 114, 0x1000 }, { 209, 0x2000 }, { 211, 0x3000 },
 };
 
-static int r8a7740_pin_to_portcr(unsigned int pin)
+static void __iomem *r8a7740_pin_to_portcr(struct sh_pfc *pfc, unsigned int pin)
 {
 	unsigned int i;
 
@@ -3690,10 +3690,10 @@ static int r8a7740_pin_to_portcr(unsigned int pin)
 			&r8a7740_portcr_offsets[i];
 
 		if (pin <= group->end_pin)
-			return group->offset + pin;
+			return pfc->windows->virt + group->offset + pin;
 	}
 
-	return -1;
+	return NULL;
 }
 
 static const struct sh_pfc_soc_operations r8a7740_pfc_ops = {

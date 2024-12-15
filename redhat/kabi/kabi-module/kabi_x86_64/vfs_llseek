@@ -1,3 +1,2 @@
-#5-
-0x77266322	vfs_llseek	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xcde6ce1c	vfs_llseek	vmlinux	EXPORT_SYMBOL	

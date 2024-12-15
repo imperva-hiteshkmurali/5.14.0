@@ -1,3 +1,2 @@
-#5-
-0x963a3b4d	scsi_add_host_with_dma	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xdf639570	scsi_add_host_with_dma	vmlinux	EXPORT_SYMBOL	

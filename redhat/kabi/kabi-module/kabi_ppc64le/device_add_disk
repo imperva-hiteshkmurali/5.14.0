@@ -1,3 +1,2 @@
-#5-
-0xd0b61b02	device_add_disk	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf3fc689d	device_add_disk	vmlinux	EXPORT_SYMBOL	

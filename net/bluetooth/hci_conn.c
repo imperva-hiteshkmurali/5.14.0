@@ -300,13 +300,6 @@ static int configure_datapath_sync(struct hci_dev *hdev, struct bt_codec *codec)
 	__u8 vnd_len, *vnd_data = NULL;
 	struct hci_op_configure_data_path *cmd = NULL;
 
-	if (!codec->data_path || !hdev->get_codec_config_data)
-		return 0;
-
-	/* Do not take me as error */
-	if (!hdev->get_codec_config_data)
-		return 0;
-
 	err = hdev->get_codec_config_data(hdev, ESCO_LINK, codec, &vnd_len,
 					  &vnd_data);
 	if (err < 0)
@@ -352,7 +345,9 @@ static int hci_enhanced_setup_sync(struct hci_dev *hdev, void *data)
 
 	bt_dev_dbg(hdev, "hcon %p", conn);
 
-	configure_datapath_sync(hdev, &conn->codec);
+	/* for offload use case, codec needs to configured before opening SCO */
+	if (conn->codec.data_path)
+		configure_datapath_sync(hdev, &conn->codec);
 
 	conn->state = BT_CONNECT;
 	conn->out = true;
@@ -765,7 +760,6 @@ static int terminate_big_sync(struct hci_dev *hdev, void *data)
 
 	bt_dev_dbg(hdev, "big 0x%2.2x bis 0x%2.2x", d->big, d->bis);
 
-	hci_disable_per_advertising_sync(hdev, d->bis);
 	hci_remove_ext_adv_instance_sync(hdev, d->bis, NULL);
 
 	/* Only terminate BIG if it has been created */
@@ -963,8 +957,8 @@ static int hci_conn_hash_alloc_unset(struct hci_dev *hdev)
 			       U16_MAX, GFP_ATOMIC);
 }
 
-static struct hci_conn *__hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
-				       u8 role, u16 handle)
+struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
+			      u8 role, u16 handle)
 {
 	struct hci_conn *conn;
 
@@ -1072,16 +1066,7 @@ struct hci_conn *hci_conn_add_unset(struct hci_dev *hdev, int type,
 	if (unlikely(handle < 0))
 		return NULL;
 
-	return __hci_conn_add(hdev, type, dst, role, handle);
-}
-
-struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
-			      u8 role, u16 handle)
-{
-	if (handle > HCI_CONN_HANDLE_MAX)
-		return ERR_PTR(-EINVAL);
-
-	return __hci_conn_add(hdev, type, dst, role, handle);
+	return hci_conn_add(hdev, type, dst, role, handle);
 }
 
 static void hci_conn_cleanup_child(struct hci_conn *conn, u8 reason)
@@ -1100,9 +1085,8 @@ static void hci_conn_cleanup_child(struct hci_conn *conn, u8 reason)
 			hci_conn_failed(conn, reason);
 		break;
 	case ISO_LINK:
-		if ((conn->state != BT_CONNECTED &&
-		    !test_bit(HCI_CONN_CREATE_CIS, &conn->flags)) ||
-		    test_bit(HCI_CONN_BIG_CREATED, &conn->flags))
+		if (conn->state != BT_CONNECTED &&
+		    !test_bit(HCI_CONN_CREATE_CIS, &conn->flags))
 			hci_conn_failed(conn, reason);
 		break;
 	}
@@ -1288,12 +1272,6 @@ void hci_conn_failed(struct hci_conn *conn, u8 status)
 		break;
 	}
 
-	/* In case of BIG/PA sync failed, clear conn flags so that
-	 * the conns will be correctly cleaned up by ISO layer
-	 */
-	test_and_clear_bit(HCI_CONN_BIG_SYNC_FAILED, &conn->flags);
-	test_and_clear_bit(HCI_CONN_PA_SYNC_FAILED, &conn->flags);
-
 	conn->state = BT_CLOSED;
 	hci_connect_cfm(conn, status);
 	hci_conn_del(conn);
@@ -1370,7 +1348,6 @@ static int hci_connect_le_sync(struct hci_dev *hdev, void *data)
 
 	bt_dev_dbg(hdev, "conn %p", conn);
 
-	clear_bit(HCI_CONN_SCANNING, &conn->flags);
 	conn->state = BT_CONNECT;
 
 	return hci_le_create_conn_sync(hdev, conn);
@@ -1441,6 +1418,8 @@ struct hci_conn *hci_connect_le(struct hci_dev *hdev, bdaddr_t *dst,
 	conn->dst_type = dst_type;
 	conn->sec_level = BT_SECURITY_LOW;
 	conn->conn_timeout = conn_timeout;
+
+	clear_bit(HCI_CONN_SCANNING, &conn->flags);
 
 	err = hci_cmd_sync_queue(hdev, hci_connect_le_sync,
 				 UINT_PTR(conn->handle),
@@ -1536,18 +1515,6 @@ static int qos_set_bis(struct hci_dev *hdev, struct bt_iso_qos *qos)
 
 	/* Allocate BIS if not set */
 	if (qos->bcast.bis == BT_ISO_QOS_BIS_UNSET) {
-		if (qos->bcast.big != BT_ISO_QOS_BIG_UNSET) {
-			conn = hci_conn_hash_lookup_big(hdev, qos->bcast.big);
-
-			if (conn) {
-				/* If the BIG handle is already matched to an advertising
-				 * handle, do not allocate a new one.
-				 */
-				qos->bcast.bis = conn->iso_qos.bcast.bis;
-				return 0;
-			}
-		}
-
 		/* Find an unused adv set to advertise BIS, skip instance 0x00
 		 * since it is reserved as general purpose set.
 		 */
@@ -2201,7 +2168,7 @@ int hci_le_big_create_sync(struct hci_dev *hdev, struct hci_conn *hcon,
 	} pdu;
 	int err;
 
-	if (num_bis < 0x01 || num_bis > sizeof(pdu.bis))
+	if (num_bis > sizeof(pdu.bis))
 		return -EINVAL;
 
 	err = qos_set_big(hdev, qos);
@@ -2243,17 +2210,7 @@ struct hci_conn *hci_bind_bis(struct hci_dev *hdev, bdaddr_t *dst,
 			      __u8 base_len, __u8 *base)
 {
 	struct hci_conn *conn;
-	struct hci_conn *parent;
 	__u8 eir[HCI_MAX_PER_AD_LENGTH];
-	struct hci_link *link;
-
-	/* Look for any BIS that is open for rebinding */
-	conn = hci_conn_hash_lookup_big_state(hdev, qos->bcast.big, BT_OPEN);
-	if (conn) {
-		memcpy(qos, &conn->iso_qos, sizeof(*qos));
-		conn->state = BT_CONNECTED;
-		return conn;
-	}
 
 	if (base_len && base)
 		base_len = eir_append_service_data(eir, 0,  0x1851,
@@ -2280,20 +2237,6 @@ struct hci_conn *hci_bind_bis(struct hci_dev *hdev, bdaddr_t *dst,
 
 	conn->iso_qos = *qos;
 	conn->state = BT_BOUND;
-
-	/* Link BISes together */
-	parent = hci_conn_hash_lookup_big(hdev,
-					  conn->iso_qos.bcast.big);
-	if (parent && parent != conn) {
-		link = hci_conn_link(parent, conn);
-		if (!link) {
-			hci_conn_drop(conn);
-			return ERR_PTR(-ENOLINK);
-		}
-
-		/* Link takes the refcount */
-		hci_conn_drop(conn);
-	}
 
 	return conn;
 }
@@ -2324,9 +2267,6 @@ struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
 
 	conn = hci_bind_bis(hdev, dst, qos, base_len, base);
 	if (IS_ERR(conn))
-		return conn;
-
-	if (conn->state == BT_CONNECTED)
 		return conn;
 
 	data.big = qos->bcast.big;
@@ -2463,10 +2403,12 @@ static int hci_conn_auth(struct hci_conn *conn, __u8 sec_level, __u8 auth_type)
 		hci_send_cmd(conn->hdev, HCI_OP_AUTH_REQUESTED,
 			     sizeof(cp), &cp);
 
-		/* Set the ENCRYPT_PEND to trigger encryption after
-		 * authentication.
+		/* If we're already encrypted set the REAUTH_PEND flag,
+		 * otherwise set the ENCRYPT_PEND.
 		 */
-		if (!test_bit(HCI_CONN_ENCRYPT, &conn->flags))
+		if (test_bit(HCI_CONN_ENCRYPT, &conn->flags))
+			set_bit(HCI_CONN_REAUTH_PEND, &conn->flags);
+		else
 			set_bit(HCI_CONN_ENCRYPT_PEND, &conn->flags);
 	}
 
@@ -2509,41 +2451,34 @@ int hci_conn_security(struct hci_conn *conn, __u8 sec_level, __u8 auth_type,
 	if (!test_bit(HCI_CONN_AUTH, &conn->flags))
 		goto auth;
 
-	switch (conn->key_type) {
-	case HCI_LK_AUTH_COMBINATION_P256:
-		/* An authenticated FIPS approved combination key has
-		 * sufficient security for security level 4 or lower.
-		 */
-		if (sec_level <= BT_SECURITY_FIPS)
-			goto encrypt;
-		break;
-	case HCI_LK_AUTH_COMBINATION_P192:
-		/* An authenticated combination key has sufficient security for
-		 * security level 3 or lower.
-		 */
-		if (sec_level <= BT_SECURITY_HIGH)
-			goto encrypt;
-		break;
-	case HCI_LK_UNAUTH_COMBINATION_P192:
-	case HCI_LK_UNAUTH_COMBINATION_P256:
-		/* An unauthenticated combination key has sufficient security
-		 * for security level 2 or lower.
-		 */
-		if (sec_level <= BT_SECURITY_MEDIUM)
-			goto encrypt;
-		break;
-	case HCI_LK_COMBINATION:
-		/* A combination key has always sufficient security for the
-		 * security levels 2 or lower. High security level requires the
-		 * combination key is generated using maximum PIN code length
-		 * (16). For pre 2.1 units.
-		 */
-		if (sec_level <= BT_SECURITY_MEDIUM || conn->pin_length == 16)
-			goto encrypt;
-		break;
-	default:
-		break;
-	}
+	/* An authenticated FIPS approved combination key has sufficient
+	 * security for security level 4. */
+	if (conn->key_type == HCI_LK_AUTH_COMBINATION_P256 &&
+	    sec_level == BT_SECURITY_FIPS)
+		goto encrypt;
+
+	/* An authenticated combination key has sufficient security for
+	   security level 3. */
+	if ((conn->key_type == HCI_LK_AUTH_COMBINATION_P192 ||
+	     conn->key_type == HCI_LK_AUTH_COMBINATION_P256) &&
+	    sec_level == BT_SECURITY_HIGH)
+		goto encrypt;
+
+	/* An unauthenticated combination key has sufficient security for
+	   security level 1 and 2. */
+	if ((conn->key_type == HCI_LK_UNAUTH_COMBINATION_P192 ||
+	     conn->key_type == HCI_LK_UNAUTH_COMBINATION_P256) &&
+	    (sec_level == BT_SECURITY_MEDIUM || sec_level == BT_SECURITY_LOW))
+		goto encrypt;
+
+	/* A combination key has always sufficient security for the security
+	   levels 1 or 2. High security level requires the combination key
+	   is generated using maximum PIN code length (16).
+	   For pre 2.1 units. */
+	if (conn->key_type == HCI_LK_COMBINATION &&
+	    (sec_level == BT_SECURITY_MEDIUM || sec_level == BT_SECURITY_LOW ||
+	     conn->pin_length == 16))
+		goto encrypt;
 
 auth:
 	if (test_bit(HCI_CONN_ENCRYPT_PEND, &conn->flags))

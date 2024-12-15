@@ -314,7 +314,7 @@ static int unflatten_dt_nodes(const void *blob,
 	for (offset = 0;
 	     offset >= 0 && depth >= initial_depth;
 	     offset = fdt_next_node(blob, offset, &depth)) {
-		if (WARN_ON_ONCE(depth >= FDT_MAX_DEPTH - 1))
+		if (WARN_ON_ONCE(depth >= FDT_MAX_DEPTH))
 			continue;
 
 		if (!IS_ENABLED(CONFIG_OF_KOBJ) &&
@@ -1025,7 +1025,6 @@ int __init early_init_dt_scan_chosen_stdout(void)
 	int l;
 	const struct earlycon_id *match;
 	const void *fdt = initial_boot_params;
-	int ret;
 
 	offset = fdt_path_offset(fdt, "/chosen");
 	if (offset < 0)
@@ -1058,8 +1057,7 @@ int __init early_init_dt_scan_chosen_stdout(void)
 		if (fdt_node_check_compatible(fdt, offset, match->compatible))
 			continue;
 
-		ret = of_setup_earlycon(match, offset, options);
-		if (!ret || ret == -EALREADY)
+		if (of_setup_earlycon(match, offset, options) == 0)
 			return 0;
 	}
 	return -ENODEV;

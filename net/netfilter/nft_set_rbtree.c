@@ -227,8 +227,12 @@ static void nft_rbtree_gc_elem_remove(struct net *net, struct nft_set *set,
 				      struct nft_rbtree *priv,
 				      struct nft_rbtree_elem *rbe)
 {
+	struct nft_set_elem elem = {
+		.priv	= &rbe->priv,
+	};
+
 	lockdep_assert_held_write(&priv->lock);
-	nft_setelem_data_deactivate(net, set, &rbe->priv);
+	nft_setelem_data_deactivate(net, set, &elem);
 	rb_erase(&rbe->node, &priv->root);
 }
 
@@ -518,9 +522,9 @@ static void nft_rbtree_erase(struct nft_rbtree *priv, struct nft_rbtree_elem *rb
 
 static void nft_rbtree_remove(const struct net *net,
 			      const struct nft_set *set,
-			      struct nft_elem_priv *elem_priv)
+			      const struct nft_set_elem *elem)
 {
-	struct nft_rbtree_elem *rbe = nft_elem_priv_cast(elem_priv);
+	struct nft_rbtree_elem *rbe = nft_elem_priv_cast(elem->priv);
 	struct nft_rbtree *priv = nft_set_priv(set);
 
 	nft_rbtree_erase(priv, rbe);
@@ -528,11 +532,11 @@ static void nft_rbtree_remove(const struct net *net,
 
 static void nft_rbtree_activate(const struct net *net,
 				const struct nft_set *set,
-				struct nft_elem_priv *elem_priv)
+				const struct nft_set_elem *elem)
 {
-	struct nft_rbtree_elem *rbe = nft_elem_priv_cast(elem_priv);
+	struct nft_rbtree_elem *rbe = nft_elem_priv_cast(elem->priv);
 
-	nft_clear(net, &rbe->ext);
+	nft_set_elem_change_active(net, set, &rbe->ext);
 }
 
 static void nft_rbtree_flush(const struct net *net,
@@ -592,6 +596,7 @@ static void nft_rbtree_walk(const struct nft_ctx *ctx,
 {
 	struct nft_rbtree *priv = nft_set_priv(set);
 	struct nft_rbtree_elem *rbe;
+	struct nft_set_elem elem;
 	struct rb_node *node;
 
 	read_lock_bh(&priv->lock);
@@ -600,8 +605,12 @@ static void nft_rbtree_walk(const struct nft_ctx *ctx,
 
 		if (iter->count < iter->skip)
 			goto cont;
+		if (!nft_set_elem_active(&rbe->ext, iter->genmask))
+			goto cont;
 
-		iter->err = iter->fn(ctx, set, iter, &rbe->priv);
+		elem.priv = &rbe->priv;
+
+		iter->err = iter->fn(ctx, set, iter, &elem);
 		if (iter->err < 0) {
 			read_unlock_bh(&priv->lock);
 			return;
@@ -616,7 +625,11 @@ static void nft_rbtree_gc_remove(struct net *net, struct nft_set *set,
 				 struct nft_rbtree *priv,
 				 struct nft_rbtree_elem *rbe)
 {
-	nft_setelem_data_deactivate(net, set, &rbe->priv);
+	struct nft_set_elem elem = {
+		.priv	= &rbe->priv,
+	};
+
+	nft_setelem_data_deactivate(net, set, &elem);
 	nft_rbtree_erase(priv, rbe);
 }
 

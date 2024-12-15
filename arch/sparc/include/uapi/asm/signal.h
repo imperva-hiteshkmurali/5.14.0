@@ -2,7 +2,6 @@
 #ifndef _UAPI__SPARC_SIGNAL_H
 #define _UAPI__SPARC_SIGNAL_H
 
-#include <asm/posix_types.h>
 #include <asm/sigcontext.h>
 #include <linux/compiler.h>
 
@@ -172,7 +171,7 @@ struct __old_sigaction {
 typedef struct sigaltstack {
 	void			__user *ss_sp;
 	int			ss_flags;
-	__kernel_size_t		ss_size;
+	size_t			ss_size;
 } stack_t;
 
 

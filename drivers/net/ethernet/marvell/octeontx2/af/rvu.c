@@ -3047,8 +3047,9 @@ static int rvu_flr_init(struct rvu *rvu)
 			    cfg | BIT_ULL(22));
 	}
 
-	rvu->flr_wq = alloc_ordered_workqueue("rvu_afpf_flr",
-					      WQ_HIGHPRI | WQ_MEM_RECLAIM);
+	rvu->flr_wq = alloc_workqueue("rvu_afpf_flr",
+				      WQ_UNBOUND | WQ_HIGHPRI | WQ_MEM_RECLAIM,
+				       1);
 	if (!rvu->flr_wq)
 		return -ENOMEM;
 

@@ -1,3 +1,2 @@
-#5-
-0xbc7f7315	devm_request_threaded_irq	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x6a08ddf1	devm_request_threaded_irq	vmlinux	EXPORT_SYMBOL	

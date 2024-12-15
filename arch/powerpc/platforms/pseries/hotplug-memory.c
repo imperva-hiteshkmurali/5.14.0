@@ -501,15 +501,14 @@ static int dlpar_memory_remove_by_index(u32 drc_index)
 		}
 	}
 
-	if (!lmb_found) {
-		pr_debug("Failed to look up LMB for drc index %x\n", drc_index);
+	if (!lmb_found)
 		rc = -EINVAL;
-	} else if (rc) {
+
+	if (rc)
 		pr_debug("Failed to hot-remove memory at %llx\n",
 			 lmb->base_addr);
-	} else {
+	else
 		pr_debug("Memory at %llx was hot-removed\n", lmb->base_addr);
-	}
 
 	return rc;
 }
@@ -652,7 +651,7 @@ static int dlpar_add_lmb(struct drmem_lmb *lmb)
 		nid = first_online_node;
 
 	/* Add the memory */
-	rc = __add_memory(nid, lmb->base_addr, block_sz, MHP_MEMMAP_ON_MEMORY);
+	rc = __add_memory(nid, lmb->base_addr, block_sz, MHP_NONE);
 	if (rc) {
 		invalidate_lmb_associativity_index(lmb);
 		return rc;

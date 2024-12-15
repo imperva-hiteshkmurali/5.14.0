@@ -1076,6 +1076,7 @@ static int bigmac_ether_init(struct platform_device *op,
 	struct net_device *dev;
 	u8 bsizes, bsizes_more;
 	struct bigmac *bp;
+	int i;
 
 	/* Get a new device struct for this interface. */
 	dev = alloc_etherdev(sizeof(struct bigmac));
@@ -1085,7 +1086,8 @@ static int bigmac_ether_init(struct platform_device *op,
 	if (version_printed++ == 0)
 		printk(KERN_INFO "%s", version);
 
-	eth_hw_addr_set(dev, idprom->id_ethaddr);
+	for (i = 0; i < 6; i++)
+		dev->dev_addr[i] = idprom->id_ethaddr[i];
 
 	/* Setup softc, with backpointers to QEC and BigMAC SBUS device structs. */
 	bp = netdev_priv(dev);

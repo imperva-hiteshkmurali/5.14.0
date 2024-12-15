@@ -681,7 +681,7 @@ static int gfs2_freeze_locally(struct gfs2_sbd *sdp)
 	struct super_block *sb = sdp->sd_vfs;
 	int error;
 
-	error = freeze_super(sb, FREEZE_HOLDER_USERSPACE);
+	error = freeze_super(sb);
 	if (error)
 		return error;
 
@@ -689,9 +689,7 @@ static int gfs2_freeze_locally(struct gfs2_sbd *sdp)
 		gfs2_log_flush(sdp, NULL, GFS2_LOG_HEAD_FLUSH_FREEZE |
 			       GFS2_LFC_FREEZE_GO_SYNC);
 		if (gfs2_withdrawn(sdp)) {
-			error = thaw_super(sb, FREEZE_HOLDER_USERSPACE);
-			if (error)
-				return error;
+			thaw_super(sb);
 			return -EIO;
 		}
 	}
@@ -706,7 +704,7 @@ static int gfs2_do_thaw(struct gfs2_sbd *sdp)
 	error = gfs2_freeze_lock_shared(sdp);
 	if (error)
 		goto fail;
-	error = thaw_super(sb, FREEZE_HOLDER_USERSPACE);
+	error = thaw_super(sb);
 	if (!error)
 		return 0;
 
@@ -755,7 +753,7 @@ out:
  *
  */
 
-static int gfs2_freeze_super(struct super_block *sb, enum freeze_holder who)
+static int gfs2_freeze_super(struct super_block *sb)
 {
 	struct gfs2_sbd *sdp = sb->s_fs_info;
 	int error;
@@ -810,7 +808,7 @@ out:
  *
  */
 
-static int gfs2_thaw_super(struct super_block *sb, enum freeze_holder who)
+static int gfs2_thaw_super(struct super_block *sb)
 {
 	struct gfs2_sbd *sdp = sb->s_fs_info;
 	int error;
@@ -1054,7 +1052,7 @@ static int gfs2_drop_inode(struct inode *inode)
 
 		gfs2_glock_hold(gl);
 		if (!gfs2_queue_try_to_evict(gl))
-			gfs2_glock_put_async(gl);
+			gfs2_glock_queue_put(gl);
 		return 0;
 	}
 
@@ -1266,7 +1264,7 @@ out_qs:
 static void gfs2_glock_put_eventually(struct gfs2_glock *gl)
 {
 	if (current->flags & PF_MEMALLOC)
-		gfs2_glock_put_async(gl);
+		gfs2_glock_queue_put(gl);
 	else
 		gfs2_glock_put(gl);
 }

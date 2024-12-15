@@ -63,10 +63,8 @@ static const struct file_operations kfd_fops = {
 };
 
 static int kfd_char_dev_major = -1;
+static struct class *kfd_class;
 struct device *kfd_device;
-static const struct class kfd_class = {
-	.name = kfd_dev_name,
-};
 
 static inline struct kfd_process_device *kfd_lock_pdd_by_id(struct kfd_process *p, __u32 gpu_id)
 {
@@ -96,13 +94,14 @@ int kfd_chardev_init(void)
 	if (err < 0)
 		goto err_register_chrdev;
 
-	err = class_register(&kfd_class);
-	if (err)
+	kfd_class = class_create(kfd_dev_name);
+	err = PTR_ERR(kfd_class);
+	if (IS_ERR(kfd_class))
 		goto err_class_create;
 
-	kfd_device = device_create(&kfd_class, NULL,
-				   MKDEV(kfd_char_dev_major, 0),
-				   NULL, kfd_dev_name);
+	kfd_device = device_create(kfd_class, NULL,
+					MKDEV(kfd_char_dev_major, 0),
+					NULL, kfd_dev_name);
 	err = PTR_ERR(kfd_device);
 	if (IS_ERR(kfd_device))
 		goto err_device_create;
@@ -110,7 +109,7 @@ int kfd_chardev_init(void)
 	return 0;
 
 err_device_create:
-	class_unregister(&kfd_class);
+	class_destroy(kfd_class);
 err_class_create:
 	unregister_chrdev(kfd_char_dev_major, kfd_dev_name);
 err_register_chrdev:
@@ -119,8 +118,8 @@ err_register_chrdev:
 
 void kfd_chardev_exit(void)
 {
-	device_destroy(&kfd_class, MKDEV(kfd_char_dev_major, 0));
-	class_unregister(&kfd_class);
+	device_destroy(kfd_class, MKDEV(kfd_char_dev_major, 0));
+	class_destroy(kfd_class);
 	unregister_chrdev(kfd_char_dev_major, kfd_dev_name);
 	kfd_device = NULL;
 }
@@ -372,7 +371,7 @@ static int kfd_ioctl_create_queue(struct file *filep, struct kfd_process *p,
 			goto err_wptr_map_gart;
 		}
 
-		err = amdgpu_amdkfd_map_gtt_bo_to_gart(wptr_bo);
+		err = amdgpu_amdkfd_map_gtt_bo_to_gart(dev->adev, wptr_bo);
 		if (err) {
 			pr_err("Failed to map wptr bo to GART\n");
 			goto err_wptr_map_gart;
@@ -779,8 +778,8 @@ static int kfd_ioctl_get_process_apertures_new(struct file *filp,
 	 * nodes, but not more than args->num_of_nodes as that is
 	 * the amount of memory allocated by user
 	 */
-	pa = kcalloc(args->num_of_nodes, sizeof(struct kfd_process_device_apertures),
-		     GFP_KERNEL);
+	pa = kzalloc((sizeof(struct kfd_process_device_apertures) *
+				args->num_of_nodes), GFP_KERNEL);
 	if (!pa)
 		return -ENOMEM;
 
@@ -1022,7 +1021,7 @@ err_drm_file:
 
 bool kfd_dev_is_large_bar(struct kfd_node *dev)
 {
-	if (dev->kfd->adev->debug_largebar) {
+	if (debug_largebar) {
 		pr_debug("Simulate large-bar allocation on non large-bar machine\n");
 		return true;
 	}
@@ -1139,7 +1138,7 @@ static int kfd_ioctl_alloc_memory_of_gpu(struct file *filep,
 			goto err_unlock;
 		}
 		offset = dev->adev->rmmio_remap.bus_addr;
-		if (!offset || (PAGE_SIZE > 4096)) {
+		if (!offset) {
 			err = -ENOMEM;
 			goto err_unlock;
 		}
@@ -1433,23 +1432,17 @@ static int kfd_ioctl_unmap_memory_from_gpu(struct file *filep,
 			goto sync_memory_failed;
 		}
 	}
-
-	/* Flush TLBs after waiting for the page table updates to complete */
-	for (i = 0; i < args->n_devices; i++) {
-		peer_pdd = kfd_process_device_data_by_id(p, devices_arr[i]);
-		if (WARN_ON_ONCE(!peer_pdd))
-			continue;
-		if (flush_tlb)
-			kfd_flush_tlb(peer_pdd, TLB_FLUSH_HEAVYWEIGHT);
-
-		/* Remove dma mapping after tlb flush to avoid IO_PAGE_FAULT */
-		err = amdgpu_amdkfd_gpuvm_dmaunmap_mem(mem, peer_pdd->drm_priv);
-		if (err)
-			goto sync_memory_failed;
-	}
-
 	mutex_unlock(&p->mutex);
 
+	if (flush_tlb) {
+		/* Flush TLBs after waiting for the page table updates to complete */
+		for (i = 0; i < args->n_devices; i++) {
+			peer_pdd = kfd_process_device_data_by_id(p, devices_arr[i]);
+			if (WARN_ON_ONCE(!peer_pdd))
+				continue;
+			kfd_flush_tlb(peer_pdd, TLB_FLUSH_HEAVYWEIGHT);
+		}
+	}
 	kfree(devices_arr);
 
 	return 0;
@@ -1523,7 +1516,7 @@ static int kfd_ioctl_get_dmabuf_info(struct file *filep,
 
 	/* Find a KFD GPU device that supports the get_dmabuf_info query */
 	for (i = 0; kfd_topology_enum_kfd_devices(i, &dev) == 0; i++)
-		if (dev && !kfd_devcgroup_check_permission(dev))
+		if (dev)
 			break;
 	if (!dev)
 		return -EINVAL;
@@ -1545,7 +1538,7 @@ static int kfd_ioctl_get_dmabuf_info(struct file *filep,
 	if (xcp_id >= 0)
 		args->gpu_id = dmabuf_adev->kfd.dev->nodes[xcp_id]->id;
 	else
-		args->gpu_id = dev->id;
+		args->gpu_id = dmabuf_adev->kfd.dev->nodes[0]->id;
 	args->flags = flags;
 
 	/* Copy metadata buffer to user mode */
@@ -1567,10 +1560,15 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 {
 	struct kfd_ioctl_import_dmabuf_args *args = data;
 	struct kfd_process_device *pdd;
+	struct dma_buf *dmabuf;
 	int idr_handle;
 	uint64_t size;
 	void *mem;
 	int r;
+
+	dmabuf = dma_buf_get(args->dmabuf_fd);
+	if (IS_ERR(dmabuf))
+		return PTR_ERR(dmabuf);
 
 	mutex_lock(&p->mutex);
 	pdd = kfd_process_device_data_by_id(p, args->gpu_id);
@@ -1585,10 +1583,10 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 		goto err_unlock;
 	}
 
-	r = amdgpu_amdkfd_gpuvm_import_dmabuf_fd(pdd->dev->adev, args->dmabuf_fd,
-						 args->va_addr, pdd->drm_priv,
-						 (struct kgd_mem **)&mem, &size,
-						 NULL);
+	r = amdgpu_amdkfd_gpuvm_import_dmabuf(pdd->dev->adev, dmabuf,
+					      args->va_addr, pdd->drm_priv,
+					      (struct kgd_mem **)&mem, &size,
+					      NULL);
 	if (r)
 		goto err_unlock;
 
@@ -1599,6 +1597,7 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 	}
 
 	mutex_unlock(&p->mutex);
+	dma_buf_put(dmabuf);
 
 	args->handle = MAKE_HANDLE(args->gpu_id, idr_handle);
 
@@ -1609,6 +1608,7 @@ err_free:
 					       pdd->drm_priv, NULL);
 err_unlock:
 	mutex_unlock(&p->mutex);
+	dma_buf_put(dmabuf);
 	return r;
 }
 
@@ -1851,8 +1851,8 @@ static uint32_t get_process_num_bos(struct kfd_process *p)
 	return num_of_bos;
 }
 
-static int criu_get_prime_handle(struct kgd_mem *mem,
-				 int flags, u32 *shared_fd)
+static int criu_get_prime_handle(struct kgd_mem *mem, int flags,
+				      u32 *shared_fd)
 {
 	struct dma_buf *dmabuf;
 	int ret;
@@ -2307,7 +2307,7 @@ static int criu_restore_memory_of_gpu(struct kfd_process_device *pdd,
 			return -EINVAL;
 		}
 		offset = pdd->dev->adev->rmmio_remap.bus_addr;
-		if (!offset || (PAGE_SIZE > 4096)) {
+		if (!offset) {
 			pr_err("amdgpu_amdkfd_get_mmio_remap_phys_addr failed\n");
 			return -ENOMEM;
 		}
@@ -2936,7 +2936,6 @@ static int kfd_ioctl_set_debug_trap(struct file *filep, struct kfd_process *p, v
 	if (IS_ERR_OR_NULL(target)) {
 		pr_debug("Cannot find process PID %i to debug\n", args->pid);
 		r = target ? PTR_ERR(target) : -ESRCH;
-		target = NULL;
 		goto out;
 	}
 
@@ -3349,13 +3348,10 @@ static int kfd_mmio_mmap(struct kfd_node *dev, struct kfd_process *process,
 	if (vma->vm_end - vma->vm_start != PAGE_SIZE)
 		return -EINVAL;
 
-	if (PAGE_SIZE > 4096)
-		return -EINVAL;
-
 	address = dev->adev->rmmio_remap.bus_addr;
 
-	vm_flags_set(vma, VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
-				VM_DONTDUMP | VM_PFNMAP);
+	vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
+				VM_DONTDUMP | VM_PFNMAP;
 
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 

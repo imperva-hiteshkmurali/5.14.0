@@ -150,7 +150,10 @@ static bool read_supported_features(struct hci_dev *hdev,
 
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, sizeof(cp), &cp,
 			     HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
+	if (IS_ERR_OR_NULL(skb)) {
+		if (!skb)
+			skb = ERR_PTR(-EIO);
+
 		bt_dev_err(hdev, "Failed to read MSFT supported features (%ld)",
 			   PTR_ERR(skb));
 		return false;
@@ -350,7 +353,7 @@ static void msft_remove_addr_filters_sync(struct hci_dev *hdev, u8 handle)
 
 		skb = __hci_cmd_sync(hdev, hdev->msft_opcode, sizeof(cp), &cp,
 				     HCI_CMD_TIMEOUT);
-		if (IS_ERR(skb)) {
+		if (IS_ERR_OR_NULL(skb)) {
 			kfree(address_filter);
 			continue;
 		}
@@ -439,8 +442,11 @@ static int msft_remove_monitor_sync(struct hci_dev *hdev,
 
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, sizeof(cp), &cp,
 			     HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb))
+	if (IS_ERR_OR_NULL(skb)) {
+		if (!skb)
+			return -EIO;
 		return PTR_ERR(skb);
+	}
 
 	return msft_le_cancel_monitor_advertisement_cb(hdev, hdev->msft_opcode,
 						       monitor, skb);
@@ -553,7 +559,7 @@ static int msft_add_monitor_sync(struct hci_dev *hdev,
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, total_size, cp,
 			     HCI_CMD_TIMEOUT);
 
-	if (IS_ERR(skb)) {
+	if (IS_ERR_OR_NULL(skb)) {
 		err = PTR_ERR(skb);
 		goto out_free;
 	}
@@ -734,10 +740,10 @@ static int msft_cancel_address_filter_sync(struct hci_dev *hdev, void *data)
 
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, sizeof(cp), &cp,
 			     HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
+	if (IS_ERR_OR_NULL(skb)) {
 		bt_dev_err(hdev, "MSFT: Failed to cancel address (%pMR) filter",
 			   &address_filter->bdaddr);
-		err = PTR_ERR(skb);
+		err = EIO;
 		goto done;
 	}
 	kfree_skb(skb);
@@ -887,7 +893,7 @@ static int msft_add_address_filter_sync(struct hci_dev *hdev, void *data)
 
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, size, cp,
 			     HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
+	if (IS_ERR_OR_NULL(skb)) {
 		bt_dev_err(hdev, "Failed to enable address %pMR filter",
 			   &address_filter->bdaddr);
 		skb = NULL;

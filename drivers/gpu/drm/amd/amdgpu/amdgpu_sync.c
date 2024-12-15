@@ -191,8 +191,7 @@ static bool amdgpu_sync_test_fence(struct amdgpu_device *adev,
 
 	/* Never sync to VM updates either. */
 	if (fence_owner == AMDGPU_FENCE_OWNER_VM &&
-	    owner != AMDGPU_FENCE_OWNER_UNDEFINED &&
-	    owner != AMDGPU_FENCE_OWNER_KFD)
+	    owner != AMDGPU_FENCE_OWNER_UNDEFINED)
 		return false;
 
 	/* Ignore fences depending on the sync mode */
@@ -441,7 +440,9 @@ void amdgpu_sync_free(struct amdgpu_sync *sync)
  */
 int amdgpu_sync_init(void)
 {
-	amdgpu_sync_slab = KMEM_CACHE(amdgpu_sync_entry, SLAB_HWCACHE_ALIGN);
+	amdgpu_sync_slab = kmem_cache_create(
+		"amdgpu_sync", sizeof(struct amdgpu_sync_entry), 0,
+		SLAB_HWCACHE_ALIGN, NULL);
 	if (!amdgpu_sync_slab)
 		return -ENOMEM;
 

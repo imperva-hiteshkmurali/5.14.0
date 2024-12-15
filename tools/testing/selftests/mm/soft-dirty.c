@@ -80,9 +80,6 @@ static void test_hugepage(int pagemap_fd, int pagesize)
 	int i, ret;
 	size_t hpage_len = read_pmd_pagesize();
 
-	if (!hpage_len)
-		ksft_exit_fail_msg("Reading PMD pagesize failed");
-
 	map = memalign(hpage_len, hpage_len);
 	if (!map)
 		ksft_exit_fail_msg("memalign failed\n");
@@ -137,7 +134,7 @@ static void test_mprotect(int pagemap_fd, int pagesize, bool anon)
 		if (!map)
 			ksft_exit_fail_msg("anon mmap failed\n");
 	} else {
-		test_fd = open(fname, O_RDWR | O_CREAT, 0664);
+		test_fd = open(fname, O_RDWR | O_CREAT);
 		if (test_fd < 0) {
 			ksft_test_result_skip("Test %s open() file failed\n", __func__);
 			return;
@@ -209,5 +206,5 @@ int main(int argc, char **argv)
 
 	close(pagemap_fd);
 
-	ksft_finished();
+	return ksft_exit_pass();
 }

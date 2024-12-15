@@ -15,9 +15,6 @@
 #include <linux/mm.h>
 #include <linux/namei.h>
 #include <linux/init_syscalls.h>
-#include <linux/task_work.h>
-
-#include "do_mounts.h"
 
 static ssize_t __init xwrite(struct file *file, const char *p, size_t count,
 		loff_t *pos)
@@ -704,7 +701,7 @@ done:
 	initrd_start = 0;
 	initrd_end = 0;
 
-	init_flush_fput();
+	flush_delayed_fput();
 }
 
 static ASYNC_DOMAIN_EXCLUSIVE(initramfs_domain);

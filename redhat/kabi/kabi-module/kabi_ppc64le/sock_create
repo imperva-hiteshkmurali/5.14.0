@@ -1,3 +1,2 @@
-#5-
-0x003b3ed3	sock_create	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x23d91581	sock_create	vmlinux	EXPORT_SYMBOL	

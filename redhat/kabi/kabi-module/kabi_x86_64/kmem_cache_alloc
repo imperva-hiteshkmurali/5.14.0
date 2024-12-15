@@ -1,3 +1,2 @@
-#5-
-0x8994aebf	kmem_cache_alloc	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xa65ec8d1	kmem_cache_alloc	vmlinux	EXPORT_SYMBOL	

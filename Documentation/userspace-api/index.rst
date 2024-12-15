@@ -30,7 +30,6 @@ place where this information is gathered.
    netlink/index
    sysfs-platform_profile
    futex2
-   vduse
 
 .. only::  subproject and html
 

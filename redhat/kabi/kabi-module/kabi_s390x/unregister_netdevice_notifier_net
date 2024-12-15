@@ -1,3 +1,2 @@
-#5-
-0x303e22e2	unregister_netdevice_notifier_net	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x7cf049c6	unregister_netdevice_notifier_net	vmlinux	EXPORT_SYMBOL	

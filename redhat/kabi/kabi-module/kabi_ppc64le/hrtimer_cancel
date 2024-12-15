@@ -1,3 +1,2 @@
-#5-
-0xe35f62f6	hrtimer_cancel	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x4807ac91	hrtimer_cancel	vmlinux	EXPORT_SYMBOL_GPL	

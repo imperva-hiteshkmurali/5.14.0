@@ -160,10 +160,9 @@ static size_t sizeof_footer(struct ceph_connection *con)
 
 static void prepare_message_data(struct ceph_msg *msg, u32 data_len)
 {
-	/* Initialize data cursor if it's not a sparse read */
-	u64 len = msg->sparse_read_total ? : data_len;
+	/* Initialize data cursor */
 
-	ceph_msg_data_cursor_init(&msg->cursor, msg, len);
+	ceph_msg_data_cursor_init(&msg->cursor, msg, data_len);
 }
 
 /*
@@ -496,7 +495,7 @@ static int write_partial_message_data(struct ceph_connection *con)
 			continue;
 		}
 
-		page = ceph_msg_data_next(cursor, &page_offset, &length);
+		page = ceph_msg_data_next(cursor, &page_offset, &length, NULL);
 		if (length == cursor->total_resid)
 			more = MSG_MORE;
 		ret = ceph_tcp_sendpage(con->sock, page, page_offset, length,
@@ -968,9 +967,9 @@ static void process_ack(struct ceph_connection *con)
 	prepare_read_tag(con);
 }
 
-static int read_partial_message_chunk(struct ceph_connection *con,
-				      struct kvec *section,
-				      unsigned int sec_len, u32 *crc)
+static int read_partial_message_section(struct ceph_connection *con,
+					struct kvec *section,
+					unsigned int sec_len, u32 *crc)
 {
 	int ret, left;
 
@@ -986,89 +985,9 @@ static int read_partial_message_chunk(struct ceph_connection *con,
 		section->iov_len += ret;
 	}
 	if (section->iov_len == sec_len)
-		*crc = crc32c(*crc, section->iov_base, section->iov_len);
+		*crc = crc32c(0, section->iov_base, section->iov_len);
 
 	return 1;
-}
-
-static inline int read_partial_message_section(struct ceph_connection *con,
-					       struct kvec *section,
-					       unsigned int sec_len, u32 *crc)
-{
-	*crc = 0;
-	return read_partial_message_chunk(con, section, sec_len, crc);
-}
-
-static int read_partial_sparse_msg_extent(struct ceph_connection *con, u32 *crc)
-{
-	struct ceph_msg_data_cursor *cursor = &con->in_msg->cursor;
-	bool do_bounce = ceph_test_opt(from_msgr(con->msgr), RXBOUNCE);
-
-	if (do_bounce && unlikely(!con->bounce_page)) {
-		con->bounce_page = alloc_page(GFP_NOIO);
-		if (!con->bounce_page) {
-			pr_err("failed to allocate bounce page\n");
-			return -ENOMEM;
-		}
-	}
-
-	while (cursor->sr_resid > 0) {
-		struct page *page, *rpage;
-		size_t off, len;
-		int ret;
-
-		page = ceph_msg_data_next(cursor, &off, &len);
-		rpage = do_bounce ? con->bounce_page : page;
-
-		/* clamp to what remains in extent */
-		len = min_t(int, len, cursor->sr_resid);
-		ret = ceph_tcp_recvpage(con->sock, rpage, (int)off, len);
-		if (ret <= 0)
-			return ret;
-		*crc = ceph_crc32c_page(*crc, rpage, off, ret);
-		ceph_msg_data_advance(cursor, (size_t)ret);
-		cursor->sr_resid -= ret;
-		if (do_bounce)
-			memcpy_page(page, off, rpage, off, ret);
-	}
-	return 1;
-}
-
-static int read_partial_sparse_msg_data(struct ceph_connection *con)
-{
-	struct ceph_msg_data_cursor *cursor = &con->in_msg->cursor;
-	bool do_datacrc = !ceph_test_opt(from_msgr(con->msgr), NOCRC);
-	u32 crc = 0;
-	int ret = 1;
-
-	if (do_datacrc)
-		crc = con->in_data_crc;
-
-	while (cursor->total_resid) {
-		if (con->v1.in_sr_kvec.iov_base)
-			ret = read_partial_message_chunk(con,
-							 &con->v1.in_sr_kvec,
-							 con->v1.in_sr_len,
-							 &crc);
-		else if (cursor->sr_resid > 0)
-			ret = read_partial_sparse_msg_extent(con, &crc);
-		if (ret <= 0)
-			break;
-
-		memset(&con->v1.in_sr_kvec, 0, sizeof(con->v1.in_sr_kvec));
-		ret = con->ops->sparse_read(con, cursor,
-				(char **)&con->v1.in_sr_kvec.iov_base);
-		if (ret <= 0) {
-			ret = ret ? ret : 1;  /* must return > 0 to indicate success */
-			break;
-		}
-		con->v1.in_sr_len = ret;
-	}
-
-	if (do_datacrc)
-		con->in_data_crc = crc;
-
-	return ret;
 }
 
 static int read_partial_msg_data(struct ceph_connection *con)
@@ -1089,7 +1008,7 @@ static int read_partial_msg_data(struct ceph_connection *con)
 			continue;
 		}
 
-		page = ceph_msg_data_next(cursor, &page_offset, &length);
+		page = ceph_msg_data_next(cursor, &page_offset, &length, NULL);
 		ret = ceph_tcp_recvpage(con->sock, page, page_offset, length);
 		if (ret <= 0) {
 			if (do_datacrc)
@@ -1131,7 +1050,7 @@ static int read_partial_msg_data_bounce(struct ceph_connection *con)
 			continue;
 		}
 
-		page = ceph_msg_data_next(cursor, &off, &len);
+		page = ceph_msg_data_next(cursor, &off, &len, NULL);
 		ret = ceph_tcp_recvpage(con->sock, con->bounce_page, 0, len);
 		if (ret <= 0) {
 			con->in_data_crc = crc;
@@ -1261,9 +1180,7 @@ static int read_partial_message(struct ceph_connection *con)
 		if (!m->num_data_items)
 			return -EIO;
 
-		if (m->sparse_read_total)
-			ret = read_partial_sparse_msg_data(con);
-		else if (ceph_test_opt(from_msgr(con->msgr), RXBOUNCE))
+		if (ceph_test_opt(from_msgr(con->msgr), RXBOUNCE))
 			ret = read_partial_msg_data_bounce(con);
 		else
 			ret = read_partial_msg_data(con);

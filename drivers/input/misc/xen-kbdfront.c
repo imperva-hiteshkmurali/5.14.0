@@ -541,7 +541,6 @@ static struct xenbus_driver xenkbd_driver = {
 	.remove = xenkbd_remove,
 	.resume = xenkbd_resume,
 	.otherend_changed = xenkbd_backend_changed,
-	.not_essential = true,
 };
 
 static int __init xenkbd_init(void)

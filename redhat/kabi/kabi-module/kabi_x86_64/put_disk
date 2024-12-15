@@ -1,3 +1,2 @@
-#5-
-0x7ca64756	put_disk	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x4e294880	put_disk	vmlinux	EXPORT_SYMBOL	

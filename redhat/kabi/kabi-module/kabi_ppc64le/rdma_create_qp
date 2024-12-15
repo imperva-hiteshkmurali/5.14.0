@@ -1,3 +1,2 @@
-#5-
-0x8b2a8dc0	rdma_create_qp	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	
-
+#4-
+0xf6eef095	rdma_create_qp	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	

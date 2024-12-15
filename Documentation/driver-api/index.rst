@@ -111,7 +111,6 @@ available subsections can be seen below.
    zorro
    hte/index
    dpll
-   wbrf
    crypto/index
 
 .. only::  subproject and html

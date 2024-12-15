@@ -427,7 +427,8 @@ static void gb_tty_hangup(struct tty_struct *tty)
 	tty_port_hangup(&gb_tty->port);
 }
 
-static ssize_t gb_tty_write(struct tty_struct *tty, const u8 *buf, size_t count)
+static int gb_tty_write(struct tty_struct *tty, const unsigned char *buf,
+			int count)
 {
 	struct gb_tty *gb_tty = tty->driver_data;
 
@@ -479,7 +480,7 @@ static int gb_tty_break_ctl(struct tty_struct *tty, int state)
 }
 
 static void gb_tty_set_termios(struct tty_struct *tty,
-			       const struct ktermios *termios_old)
+			       struct ktermios *termios_old)
 {
 	struct gb_uart_set_line_coding_request newline;
 	struct gb_tty *gb_tty = tty->driver_data;
@@ -700,7 +701,7 @@ static int gb_tty_ioctl(struct tty_struct *tty, unsigned int cmd,
 	return -ENOIOCTLCMD;
 }
 
-static void gb_tty_dtr_rts(struct tty_port *port, bool active)
+static void gb_tty_dtr_rts(struct tty_port *port, int on)
 {
 	struct gb_tty *gb_tty;
 	u8 newctrl;
@@ -708,7 +709,7 @@ static void gb_tty_dtr_rts(struct tty_port *port, bool active)
 	gb_tty = container_of(port, struct gb_tty, port);
 	newctrl = gb_tty->ctrlout;
 
-	if (active)
+	if (on)
 		newctrl |= (GB_UART_CTRL_DTR | GB_UART_CTRL_RTS);
 	else
 		newctrl &= ~(GB_UART_CTRL_DTR | GB_UART_CTRL_RTS);
@@ -972,7 +973,7 @@ static int gb_tty_init(void)
 	return 0;
 
 fail_put_gb_tty:
-	tty_driver_kref_put(gb_tty_driver);
+	put_tty_driver(gb_tty_driver);
 fail_unregister_dev:
 	return retval;
 }
@@ -980,7 +981,7 @@ fail_unregister_dev:
 static void gb_tty_exit(void)
 {
 	tty_unregister_driver(gb_tty_driver);
-	tty_driver_kref_put(gb_tty_driver);
+	put_tty_driver(gb_tty_driver);
 	idr_destroy(&tty_minors);
 }
 

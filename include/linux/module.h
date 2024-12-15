@@ -27,7 +27,6 @@
 #include <linux/tracepoint-defs.h>
 #include <linux/srcu.h>
 #include <linux/static_call_types.h>
-#include <linux/dynamic_debug.h>
 #include <linux/cfi.h>
 
 #include <linux/percpu.h>
@@ -135,7 +134,7 @@ extern void cleanup_module(void);
 	{ return initfn; }					\
 	int init_module(void) __copy(initfn)			\
 		__attribute__((alias(#initfn)));		\
-	___ADDRESSABLE(init_module, __initdata);
+	__CFI_ADDRESSABLE(init_module, __initdata);
 
 /* This is only required if you want to be unloadable. */
 #define module_exit(exitfn)					\
@@ -143,7 +142,7 @@ extern void cleanup_module(void);
 	{ return exitfn; }					\
 	void cleanup_module(void) __copy(exitfn)		\
 		__attribute__((alias(#exitfn)));		\
-	___ADDRESSABLE(cleanup_module, __exitdata);
+	__CFI_ADDRESSABLE(cleanup_module, __exitdata);
 
 #endif
 
@@ -293,7 +292,7 @@ extern typeof(name) __mod_##type##__##name##_device_table		\
  * files require multiple MODULE_FIRMWARE() specifiers */
 #define MODULE_FIRMWARE(_firmware) MODULE_INFO(firmware, _firmware)
 
-#define MODULE_IMPORT_NS(ns)	MODULE_INFO(import_ns, __stringify(ns))
+#define MODULE_IMPORT_NS(ns) MODULE_INFO(import_ns, #ns)
 
 struct notifier_block;
 
@@ -324,47 +323,17 @@ struct mod_tree_node {
 	struct latch_tree_node node;
 };
 
-enum mod_mem_type {
-	MOD_TEXT = 0,
-	MOD_DATA,
-	MOD_RODATA,
-	MOD_RO_AFTER_INIT,
-	MOD_INIT_TEXT,
-	MOD_INIT_DATA,
-	MOD_INIT_RODATA,
-
-	MOD_MEM_NUM_TYPES,
-	MOD_INVALID = -1,
-};
-
-#define mod_mem_type_is_init(type)	\
-	((type) == MOD_INIT_TEXT ||	\
-	 (type) == MOD_INIT_DATA ||	\
-	 (type) == MOD_INIT_RODATA)
-
-#define mod_mem_type_is_core(type) (!mod_mem_type_is_init(type))
-
-#define mod_mem_type_is_text(type)	\
-	 ((type) == MOD_TEXT ||		\
-	  (type) == MOD_INIT_TEXT)
-
-#define mod_mem_type_is_data(type) (!mod_mem_type_is_text(type))
-
-#define mod_mem_type_is_core_data(type)	\
-	(mod_mem_type_is_core(type) &&	\
-	 mod_mem_type_is_data(type))
-
-#define for_each_mod_mem_type(type)			\
-	for (enum mod_mem_type (type) = 0;		\
-	     (type) < MOD_MEM_NUM_TYPES; (type)++)
-
-#define for_class_mod_mem_type(type, class)		\
-	for_each_mod_mem_type(type)			\
-		if (mod_mem_type_is_##class(type))
-
-struct module_memory {
+struct module_layout {
+	/* The actual code + data. */
 	void *base;
+	/* Total size. */
 	unsigned int size;
+	/* The size of the executable code.  */
+	unsigned int text_size;
+	/* Size of RO section of the module (text+rodata) */
+	unsigned int ro_size;
+	/* Size of RO after init section */
+	unsigned int ro_after_init_size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 	struct mod_tree_node mtn;
@@ -373,9 +342,9 @@ struct module_memory {
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 /* Only touch one cacheline for common rbtree-for-core-layout case. */
-#define __module_memory_align ____cacheline_aligned
+#define __module_layout_align ____cacheline_aligned
 #else
-#define __module_memory_align
+#define __module_layout_align
 #endif
 
 struct mod_kallsyms {
@@ -460,7 +429,9 @@ struct module {
 	/* Startup function. */
 	int (*init)(void);
 
-	struct module_memory mem[MOD_MEM_NUM_TYPES] __module_memory_align;
+	/* Core layout: rbtree is accessed frequently, so keep together. */
+	struct module_layout core_layout __module_layout_align;
+	struct module_layout init_layout;
 
 	/* Arch-specific module values */
 	struct mod_arch_specific arch;
@@ -543,8 +514,6 @@ struct module {
 	struct static_call_site *static_call_sites;
 #endif
 #if IS_ENABLED(CONFIG_KUNIT)
-	int num_kunit_init_suites;
-	struct kunit_suite **kunit_init_suites;
 	int num_kunit_suites;
 	struct kunit_suite **kunit_suites;
 #endif
@@ -585,9 +554,6 @@ struct module {
 	struct error_injection_entry *ei_funcs;
 	unsigned int num_ei_funcs;
 #endif
-#ifdef CONFIG_DYNAMIC_DEBUG_CORE
-	struct _ddebug_info dyndbg_info;
-#endif
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
@@ -615,35 +581,18 @@ bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr);
 bool is_module_percpu_address(unsigned long addr);
 bool is_module_text_address(unsigned long addr);
 
-static inline bool within_module_mem_type(unsigned long addr,
-					  const struct module *mod,
-					  enum mod_mem_type type)
-{
-	unsigned long base, size;
-
-	base = (unsigned long)mod->mem[type].base;
-	size = mod->mem[type].size;
-	return addr - base < size;
-}
-
 static inline bool within_module_core(unsigned long addr,
 				      const struct module *mod)
 {
-	for_class_mod_mem_type(type, core) {
-		if (within_module_mem_type(addr, mod, type))
-			return true;
-	}
-	return false;
+	return (unsigned long)mod->core_layout.base <= addr &&
+	       addr < (unsigned long)mod->core_layout.base + mod->core_layout.size;
 }
 
 static inline bool within_module_init(unsigned long addr,
 				      const struct module *mod)
 {
-	for_class_mod_mem_type(type, init) {
-		if (within_module_mem_type(addr, mod, type))
-			return true;
-	}
-	return false;
+	return (unsigned long)mod->init_layout.base <= addr &&
+	       addr < (unsigned long)mod->init_layout.base + mod->init_layout.size;
 }
 
 static inline bool within_module(unsigned long addr, const struct module *mod)
@@ -668,46 +617,10 @@ void symbol_put_addr(void *addr);
    to handle the error case (which only happens with rmmod --wait). */
 extern void __module_get(struct module *module);
 
-/**
- * try_module_get() - take module refcount unless module is being removed
- * @module: the module we should check for
- *
- * Only try to get a module reference count if the module is not being removed.
- * This call will fail if the module is in the process of being removed.
- *
- * Care must also be taken to ensure the module exists and is alive prior to
- * usage of this call. This can be gauranteed through two means:
- *
- * 1) Direct protection: you know an earlier caller must have increased the
- *    module reference through __module_get(). This can typically be achieved
- *    by having another entity other than the module itself increment the
- *    module reference count.
- *
- * 2) Implied protection: there is an implied protection against module
- *    removal. An example of this is the implied protection used by kernfs /
- *    sysfs. The sysfs store / read file operations are guaranteed to exist
- *    through the use of kernfs's active reference (see kernfs_active()) and a
- *    sysfs / kernfs file removal cannot happen unless the same file is not
- *    active. Therefore, if a sysfs file is being read or written to the module
- *    which created it must still exist. It is therefore safe to use
- *    try_module_get() on module sysfs store / read ops.
- *
- * One of the real values to try_module_get() is the module_is_live() check
- * which ensures that the caller of try_module_get() can yield to userspace
- * module removal requests and gracefully fail if the module is on its way out.
- *
- * Returns true if the reference count was successfully incremented.
- */
+/* This is the Right Way to get a module: if it fails, it's being removed,
+ * so pretend it's not there. */
 extern bool try_module_get(struct module *module);
 
-/**
- * module_put() - release a reference count to a module
- * @module: the module we should release a reference count for
- *
- * If you successfully bump a reference count to a module with try_module_get(),
- * when you are finished you must call module_put() to release that reference
- * count.
- */
 extern void module_put(struct module *module);
 
 #else /*!CONFIG_MODULE_UNLOAD*/
@@ -746,15 +659,19 @@ static inline bool module_requested_async_probing(struct module *module)
 	return module && module->async_probe_requested;
 }
 
+#ifdef CONFIG_LIVEPATCH
 static inline bool is_livepatch_module(struct module *mod)
 {
-#ifdef CONFIG_LIVEPATCH
 	return mod->klp;
-#else
-	return false;
-#endif
 }
+#else /* !CONFIG_LIVEPATCH */
+static inline bool is_livepatch_module(struct module *mod)
+{
+	return false;
+}
+#endif /* CONFIG_LIVEPATCH */
 
+bool is_module_sig_enforced(void);
 void set_module_sig_enforced(void);
 
 #else /* !CONFIG_MODULES... */
@@ -848,6 +765,10 @@ static inline bool module_requested_async_probing(struct module *module)
 	return false;
 }
 
+static inline bool is_module_sig_enforced(void)
+{
+	return false;
+}
 
 static inline void set_module_sig_enforced(void)
 {
@@ -864,7 +785,8 @@ void *dereference_module_function_descriptor(struct module *mod, void *ptr)
 
 #ifdef CONFIG_SYSFS
 extern struct kset *module_kset;
-extern const struct kobj_type module_ktype;
+extern struct kobj_type module_ktype;
+extern int module_sysfs_initialized;
 #endif /* CONFIG_SYSFS */
 
 #define symbol_request(x) try_then_request_module(symbol_get(x), "symbol:" #x)
@@ -888,7 +810,7 @@ static inline void module_bug_finalize(const Elf_Ehdr *hdr,
 static inline void module_bug_cleanup(struct module *mod) {}
 #endif	/* CONFIG_GENERIC_BUG */
 
-#ifdef CONFIG_MITIGATION_RETPOLINE
+#ifdef CONFIG_RETPOLINE
 extern bool retpoline_module_ok(bool has_retpoline);
 #else
 static inline bool retpoline_module_ok(bool has_retpoline)
@@ -898,18 +820,11 @@ static inline bool retpoline_module_ok(bool has_retpoline)
 #endif
 
 #ifdef CONFIG_MODULE_SIG
-bool is_module_sig_enforced(void);
-
 static inline bool module_sig_ok(struct module *module)
 {
 	return module->sig_ok;
 }
 #else	/* !CONFIG_MODULE_SIG */
-static inline bool is_module_sig_enforced(void)
-{
-	return false;
-}
-
 static inline bool module_sig_ok(struct module *module)
 {
 	return true;
@@ -917,8 +832,8 @@ static inline bool module_sig_ok(struct module *module)
 #endif	/* CONFIG_MODULE_SIG */
 
 #if defined(CONFIG_MODULES) && defined(CONFIG_KALLSYMS)
-int module_kallsyms_on_each_symbol(const char *modname,
-				   int (*fn)(void *, const char *, unsigned long),
+int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
+					     struct module *, unsigned long),
 				   void *data);
 
 /* For kallsyms to ask for address resolution.  namebuf should be at
@@ -951,7 +866,8 @@ unsigned long find_kallsyms_symbol_value(struct module *mod, const char *name);
 #else	/* CONFIG_MODULES && CONFIG_KALLSYMS */
 
 static inline int module_kallsyms_on_each_symbol(const char *modname,
-						 int (*fn)(void *, const char *, unsigned long),
+						 int (*fn)(void *, const char *,
+						 struct module *, unsigned long),
 						 void *data)
 {
 	return -EOPNOTSUPP;
@@ -969,6 +885,15 @@ static inline const char *module_address_lookup(unsigned long addr,
 }
 
 static inline int lookup_module_symbol_name(unsigned long addr, char *symname)
+{
+	return -ERANGE;
+}
+
+static inline int lookup_module_symbol_attrs(unsigned long addr,
+					     unsigned long *size,
+					     unsigned long *offset,
+					     char *modname,
+					     char *name)
 {
 	return -ERANGE;
 }

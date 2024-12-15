@@ -1,3 +1,2 @@
-#5-
-0x199983ca	netif_carrier_off	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xb20d238a	netif_carrier_off	vmlinux	EXPORT_SYMBOL	

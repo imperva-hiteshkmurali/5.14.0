@@ -203,8 +203,6 @@ size_t dax_copy_to_iter(struct dax_device *dax_dev, pgoff_t pgoff, void *addr,
 int dax_zero_page_range(struct dax_device *dax_dev, pgoff_t pgoff,
 			size_t nr_pages)
 {
-	int ret;
-
 	if (!dax_alive(dax_dev))
 		return -ENXIO;
 	/*
@@ -215,8 +213,7 @@ int dax_zero_page_range(struct dax_device *dax_dev, pgoff_t pgoff,
 	if (nr_pages != 1)
 		return -EIO;
 
-	ret = dax_dev->ops->zero_page_range(dax_dev, pgoff, nr_pages);
-	return dax_mem2blk_err(ret);
+	return dax_dev->ops->zero_page_range(dax_dev, pgoff, nr_pages);
 }
 EXPORT_SYMBOL_GPL(dax_zero_page_range);
 
@@ -326,8 +323,7 @@ void kill_dax(struct dax_device *dax_dev)
 		return;
 
 	if (dax_dev->holder_data != NULL)
-		dax_holder_notify_failure(dax_dev, 0, U64_MAX,
-				MF_MEM_PRE_REMOVE);
+		dax_holder_notify_failure(dax_dev, 0, U64_MAX, 0);
 
 	clear_bit(DAXDEV_ALIVE, &dax_dev->flags);
 	synchronize_srcu(&dax_srcu);
@@ -479,7 +475,7 @@ EXPORT_SYMBOL_GPL(put_dax);
 /**
  * dax_holder() - obtain the holder of a dax device
  * @dax_dev: a dax_device instance
- *
+
  * Return: the holder's data which represents the holder if registered,
  * otherwize NULL.
  */

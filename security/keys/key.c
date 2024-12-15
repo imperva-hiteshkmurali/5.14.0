@@ -464,8 +464,7 @@ static int __key_instantiate_and_link(struct key *key,
 			if (authkey)
 				key_invalidate(authkey);
 
-			if (prep->expiry != TIME64_MAX)
-				key_set_expiry(key, prep->expiry);
+			key_set_expiry(key, prep->expiry);
 		}
 	}
 
@@ -691,7 +690,6 @@ error:
 	spin_unlock(&key_serial_lock);
 	return key;
 }
-EXPORT_SYMBOL(key_lookup);
 
 /*
  * Find and lock the specified key type against removal.

@@ -28,7 +28,6 @@
 #include <linux/sched.h>
 #include <linux/mutex.h>
 #include <linux/seq_file.h>
-#include <linux/serial.h>
 #include <linux/serial_reg.h>
 #include <linux/circ_buf.h>
 #include <linux/tty.h>
@@ -246,12 +245,26 @@ static inline void sdio_uart_update_mctrl(struct sdio_uart_port *port,
 
 static void sdio_uart_change_speed(struct sdio_uart_port *port,
 				   struct ktermios *termios,
-				   const struct ktermios *old)
+				   struct ktermios *old)
 {
 	unsigned char cval, fcr = 0;
 	unsigned int baud, quot;
 
-	cval = UART_LCR_WLEN(tty_get_char_size(termios->c_cflag));
+	switch (termios->c_cflag & CSIZE) {
+	case CS5:
+		cval = UART_LCR_WLEN5;
+		break;
+	case CS6:
+		cval = UART_LCR_WLEN6;
+		break;
+	case CS7:
+		cval = UART_LCR_WLEN7;
+		break;
+	default:
+	case CS8:
+		cval = UART_LCR_WLEN8;
+		break;
+	}
 
 	if (termios->c_cflag & CSTOPB)
 		cval |= UART_LCR_STOP;
@@ -478,13 +491,13 @@ static void sdio_uart_check_modem_status(struct sdio_uart_port *port)
 			int cts = (status & UART_MSR_CTS);
 			if (tty->hw_stopped) {
 				if (cts) {
-					tty->hw_stopped = false;
+					tty->hw_stopped = 0;
 					sdio_uart_start_tx(port);
 					tty_wakeup(tty);
 				}
 			} else {
 				if (!cts) {
-					tty->hw_stopped = true;
+					tty->hw_stopped = 1;
 					sdio_uart_stop_tx(port);
 				}
 			}
@@ -526,7 +539,7 @@ static void sdio_uart_irq(struct sdio_func *func)
 	port->in_sdio_uart_irq = NULL;
 }
 
-static bool uart_carrier_raised(struct tty_port *tport)
+static int uart_carrier_raised(struct tty_port *tport)
 {
 	struct sdio_uart_port *port =
 			container_of(tport, struct sdio_uart_port, port);
@@ -535,27 +548,28 @@ static bool uart_carrier_raised(struct tty_port *tport)
 		return 1;
 	ret = sdio_uart_get_mctrl(port);
 	sdio_uart_release_func(port);
-
-	return ret & TIOCM_CAR;
+	if (ret & TIOCM_CAR)
+		return 1;
+	return 0;
 }
 
 /**
  *	uart_dtr_rts		-	 port helper to set uart signals
  *	@tport: tty port to be updated
- *	@active: set to turn on DTR/RTS
+ *	@onoff: set to turn on DTR/RTS
  *
  *	Called by the tty port helpers when the modem signals need to be
  *	adjusted during an open, close and hangup.
  */
 
-static void uart_dtr_rts(struct tty_port *tport, bool active)
+static void uart_dtr_rts(struct tty_port *tport, int onoff)
 {
 	struct sdio_uart_port *port =
 			container_of(tport, struct sdio_uart_port, port);
 	int ret = sdio_uart_claim_func(port);
 	if (ret)
 		return;
-	if (!active)
+	if (onoff == 0)
 		sdio_uart_clear_mctrl(port, TIOCM_DTR | TIOCM_RTS);
 	else
 		sdio_uart_set_mctrl(port, TIOCM_DTR | TIOCM_RTS);
@@ -633,7 +647,7 @@ static int sdio_uart_activate(struct tty_port *tport, struct tty_struct *tty)
 
 	if (C_CRTSCTS(tty))
 		if (!(sdio_uart_get_mctrl(port) & TIOCM_CTS))
-			tty->hw_stopped = true;
+			tty->hw_stopped = 1;
 
 	clear_bit(TTY_IO_ERROR, &tty->flags);
 
@@ -760,8 +774,8 @@ static void sdio_uart_hangup(struct tty_struct *tty)
 	tty_port_hangup(&port->port);
 }
 
-static ssize_t sdio_uart_write(struct tty_struct *tty, const u8 *buf,
-			      size_t count)
+static int sdio_uart_write(struct tty_struct *tty, const unsigned char *buf,
+			   int count)
 {
 	struct sdio_uart_port *port = tty->driver_data;
 	int ret;
@@ -858,7 +872,7 @@ static void sdio_uart_unthrottle(struct tty_struct *tty)
 }
 
 static void sdio_uart_set_termios(struct tty_struct *tty,
-				  const struct ktermios *old_termios)
+						struct ktermios *old_termios)
 {
 	struct sdio_uart_port *port = tty->driver_data;
 	unsigned int cflag = tty->termios.c_cflag;
@@ -882,14 +896,14 @@ static void sdio_uart_set_termios(struct tty_struct *tty,
 
 	/* Handle turning off CRTSCTS */
 	if ((old_termios->c_cflag & CRTSCTS) && !(cflag & CRTSCTS)) {
-		tty->hw_stopped = false;
+		tty->hw_stopped = 0;
 		sdio_uart_start_tx(port);
 	}
 
 	/* Handle turning on CRTSCTS */
 	if (!(old_termios->c_cflag & CRTSCTS) && (cflag & CRTSCTS)) {
 		if (!(sdio_uart_get_mctrl(port) & TIOCM_CTS)) {
-			tty->hw_stopped = true;
+			tty->hw_stopped = 1;
 			sdio_uart_stop_tx(port);
 		}
 	}
@@ -1151,7 +1165,7 @@ static int __init sdio_uart_init(void)
 err2:
 	tty_unregister_driver(tty_drv);
 err1:
-	tty_driver_kref_put(tty_drv);
+	put_tty_driver(tty_drv);
 	return ret;
 }
 
@@ -1159,7 +1173,7 @@ static void __exit sdio_uart_exit(void)
 {
 	sdio_unregister_driver(&sdio_uart_driver);
 	tty_unregister_driver(sdio_uart_tty_driver);
-	tty_driver_kref_put(sdio_uart_tty_driver);
+	put_tty_driver(sdio_uart_tty_driver);
 }
 
 module_init(sdio_uart_init);

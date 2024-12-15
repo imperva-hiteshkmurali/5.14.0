@@ -1,3 +1,2 @@
-#5-
-0x89c0dc7e	generic_file_write_iter	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x1738f145	generic_file_write_iter	vmlinux	EXPORT_SYMBOL	

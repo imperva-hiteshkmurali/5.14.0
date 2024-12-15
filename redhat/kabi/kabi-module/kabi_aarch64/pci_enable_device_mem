@@ -1,3 +1,2 @@
-#5-
-0x2326d67b	pci_enable_device_mem	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x05710467	pci_enable_device_mem	vmlinux	EXPORT_SYMBOL	

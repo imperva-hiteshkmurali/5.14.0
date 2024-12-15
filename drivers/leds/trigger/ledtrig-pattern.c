@@ -155,7 +155,7 @@ static ssize_t repeat_show(struct device *dev, struct device_attribute *attr,
 
 	mutex_unlock(&data->lock);
 
-	return sysfs_emit(buf, "%d\n", repeat);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", repeat);
 }
 
 static ssize_t repeat_store(struct device *dev, struct device_attribute *attr,

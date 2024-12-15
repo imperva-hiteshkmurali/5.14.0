@@ -1,3 +1,2 @@
-#5-
-0x8af7c695	kmalloc_trace	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x5bbdd589	kmalloc_trace	vmlinux	EXPORT_SYMBOL	

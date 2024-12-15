@@ -102,8 +102,8 @@ static int ehci_atmel_drv_probe(struct platform_device *pdev)
 	pr_debug("Initializing Atmel-SoC USB Host Controller\n");
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		retval = irq;
+	if (irq <= 0) {
+		retval = -ENODEV;
 		goto fail_create_hcd;
 	}
 

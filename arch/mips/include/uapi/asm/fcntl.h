@@ -44,11 +44,11 @@
 #define F_SETOWN	24	/*  for sockets. */
 #define F_GETOWN	23	/*  for sockets. */
 
-#if __BITS_PER_LONG == 32 || defined(__KERNEL__)
+#ifndef __mips64
 #define F_GETLK64	33	/*  using 'struct flock64' */
 #define F_SETLK64	34
 #define F_SETLKW64	35
-#endif /* __BITS_PER_LONG == 32 || defined(__KERNEL__) */
+#endif
 
 /*
  * The flavours of struct flock.  "struct flock" is the ABI compliant

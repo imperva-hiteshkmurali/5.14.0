@@ -1239,19 +1239,16 @@ static int __net_init cangw_pernet_init(struct net *net)
 	return 0;
 }
 
-static void __net_exit cangw_pernet_exit_batch(struct list_head *net_list)
+static void __net_exit cangw_pernet_exit(struct net *net)
 {
-	struct net *net;
-
 	rtnl_lock();
-	list_for_each_entry(net, net_list, exit_list)
-		cgw_remove_all_jobs(net);
+	cgw_remove_all_jobs(net);
 	rtnl_unlock();
 }
 
 static struct pernet_operations cangw_pernet_ops = {
 	.init = cangw_pernet_init,
-	.exit_batch = cangw_pernet_exit_batch,
+	.exit = cangw_pernet_exit,
 };
 
 static __init int cgw_module_init(void)

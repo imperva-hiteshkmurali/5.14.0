@@ -14,7 +14,6 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
-#include <linux/etherdevice.h>
 
 #include <pcmcia/cisreg.h>
 #include <pcmcia/cistpl.h>
@@ -399,6 +398,7 @@ static int pcmcia_do_get_mac(struct pcmcia_device *p_dev, tuple_t *tuple,
 			     void *priv)
 {
 	struct net_device *dev = priv;
+	int i;
 
 	if (tuple->TupleData[0] != CISTPL_FUNCE_LAN_NODE_ID)
 		return -EINVAL;
@@ -412,7 +412,8 @@ static int pcmcia_do_get_mac(struct pcmcia_device *p_dev, tuple_t *tuple,
 		dev_warn(&p_dev->dev, "Invalid header for LAN_NODE_ID\n");
 		return -EINVAL;
 	}
-	eth_hw_addr_set(dev, &tuple->TupleData[2]);
+	for (i = 0; i < 6; i++)
+		dev->dev_addr[i] = tuple->TupleData[i+2];
 	return 0;
 }
 

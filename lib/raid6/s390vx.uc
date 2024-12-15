@@ -12,7 +12,9 @@
  */
 
 #include <linux/raid/pq.h>
-#include <asm/fpu.h>
+#include <asm/fpu/api.h>
+
+asm(".include \"asm/vx-insn.h\"\n");
 
 #define NSIZE 16
 
@@ -80,7 +82,7 @@ static inline void COPY_VEC(int x, int y)
 
 static void raid6_s390vx$#_gen_syndrome(int disks, size_t bytes, void **ptrs)
 {
-	DECLARE_KERNEL_FPU_ONSTACK32(vxstate);
+	struct kernel_fpu vxstate;
 	u8 **dptr, *p, *q;
 	int d, z, z0;
 
@@ -113,7 +115,7 @@ static void raid6_s390vx$#_gen_syndrome(int disks, size_t bytes, void **ptrs)
 static void raid6_s390vx$#_xor_syndrome(int disks, int start, int stop,
 					size_t bytes, void **ptrs)
 {
-	DECLARE_KERNEL_FPU_ONSTACK32(vxstate);
+	struct kernel_fpu vxstate;
 	u8 **dptr, *p, *q;
 	int d, z, z0;
 
@@ -157,7 +159,7 @@ static void raid6_s390vx$#_xor_syndrome(int disks, int start, int stop,
 
 static int raid6_s390vx$#_valid(void)
 {
-	return cpu_has_vx();
+	return MACHINE_HAS_VX;
 }
 
 const struct raid6_calls raid6_s390vx$# = {

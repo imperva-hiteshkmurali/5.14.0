@@ -1,3 +1,2 @@
-#5-
-0x6faef2ff	sock_setsockopt	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x71188e45	sock_setsockopt	vmlinux	EXPORT_SYMBOL	

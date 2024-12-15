@@ -465,14 +465,16 @@ static u16 metronomefb_dpy_update_page(struct metronomefb_par *par, int index)
 }
 
 /* this is called back from the deferred io workqueue */
-static void metronomefb_dpy_deferred_io(struct fb_info *info, struct list_head *pagereflist)
+static void metronomefb_dpy_deferred_io(struct fb_info *info,
+				struct list_head *pagelist)
 {
 	u16 cksum;
 	struct fb_deferred_io_pageref *pageref;
+	struct fb_deferred_io *fbdefio = info->fbdefio;
 	struct metronomefb_par *par = info->par;
 
 	/* walk the written page list and swizzle the data */
-	list_for_each_entry(pageref, pagereflist, list) {
+	list_for_each_entry(pageref, &fbdefio->pagelist, list) {
 		struct page *cur = pageref->page;
 		cksum = metronomefb_dpy_update_page(par,
 					(cur->index << PAGE_SHIFT));
@@ -524,8 +526,8 @@ static ssize_t metronomefb_write(struct fb_info *info, const char __user *buf,
 	int err = 0;
 	unsigned long total_size;
 
-	if (!info->screen_buffer)
-		return -ENODEV;
+	if (info->state != FBINFO_STATE_RUNNING)
+		return -EPERM;
 
 	total_size = info->fix.smem_len;
 
@@ -567,9 +569,9 @@ static const struct fb_ops metronomefb_ops = {
 };
 
 static struct fb_deferred_io metronomefb_defio = {
-	.delay			= HZ,
-	.sort_pagereflist	= true,
-	.deferred_io		= metronomefb_dpy_deferred_io,
+	.delay		= HZ,
+	.sort_pagelist	= true,
+	.deferred_io	= metronomefb_dpy_deferred_io,
 };
 
 static int metronomefb_probe(struct platform_device *dev)
@@ -701,7 +703,7 @@ static int metronomefb_probe(struct platform_device *dev)
 	if (retval < 0)
 		goto err_free_irq;
 
-	info->flags = FBINFO_VIRTFB;
+	info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
 
 	info->fbdefio = &metronomefb_defio;
 	fb_deferred_io_init(info);

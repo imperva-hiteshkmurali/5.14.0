@@ -3,7 +3,6 @@
 #include "debug.h"
 #include "env.h"
 #include "util/header.h"
-#include "linux/compiler.h"
 #include <linux/ctype.h>
 #include <linux/zalloc.h>
 #include "cgroup.h"
@@ -13,7 +12,6 @@
 #include <string.h>
 #include "pmus.h"
 #include "strbuf.h"
-#include "trace/beauty/beauty.h"
 
 struct perf_env perf_env;
 
@@ -25,18 +23,12 @@ struct perf_env perf_env;
 void perf_env__insert_bpf_prog_info(struct perf_env *env,
 				    struct bpf_prog_info_node *info_node)
 {
-	down_write(&env->bpf_progs.lock);
-	__perf_env__insert_bpf_prog_info(env, info_node);
-	up_write(&env->bpf_progs.lock);
-}
-
-void __perf_env__insert_bpf_prog_info(struct perf_env *env, struct bpf_prog_info_node *info_node)
-{
 	__u32 prog_id = info_node->info_linear->info.id;
 	struct bpf_prog_info_node *node;
 	struct rb_node *parent = NULL;
 	struct rb_node **p;
 
+	down_write(&env->bpf_progs.lock);
 	p = &env->bpf_progs.infos.rb_node;
 
 	while (*p != NULL) {
@@ -48,13 +40,15 @@ void __perf_env__insert_bpf_prog_info(struct perf_env *env, struct bpf_prog_info
 			p = &(*p)->rb_right;
 		} else {
 			pr_debug("duplicated bpf prog info %u\n", prog_id);
-			return;
+			goto out;
 		}
 	}
 
 	rb_link_node(&info_node->rb_node, parent, p);
 	rb_insert_color(&info_node->rb_node, &env->bpf_progs.infos);
 	env->bpf_progs.infos_cnt++;
+out:
+	up_write(&env->bpf_progs.lock);
 }
 
 struct bpf_prog_info_node *perf_env__find_bpf_prog_info(struct perf_env *env,
@@ -84,21 +78,13 @@ out:
 
 bool perf_env__insert_btf(struct perf_env *env, struct btf_node *btf_node)
 {
-	bool ret;
-
-	down_write(&env->bpf_progs.lock);
-	ret = __perf_env__insert_btf(env, btf_node);
-	up_write(&env->bpf_progs.lock);
-	return ret;
-}
-
-bool __perf_env__insert_btf(struct perf_env *env, struct btf_node *btf_node)
-{
 	struct rb_node *parent = NULL;
 	__u32 btf_id = btf_node->id;
 	struct btf_node *node;
 	struct rb_node **p;
+	bool ret = true;
 
+	down_write(&env->bpf_progs.lock);
 	p = &env->bpf_progs.btfs.rb_node;
 
 	while (*p != NULL) {
@@ -110,31 +96,25 @@ bool __perf_env__insert_btf(struct perf_env *env, struct btf_node *btf_node)
 			p = &(*p)->rb_right;
 		} else {
 			pr_debug("duplicated btf %u\n", btf_id);
-			return false;
+			ret = false;
+			goto out;
 		}
 	}
 
 	rb_link_node(&btf_node->rb_node, parent, p);
 	rb_insert_color(&btf_node->rb_node, &env->bpf_progs.btfs);
 	env->bpf_progs.btfs_cnt++;
-	return true;
+out:
+	up_write(&env->bpf_progs.lock);
+	return ret;
 }
 
 struct btf_node *perf_env__find_btf(struct perf_env *env, __u32 btf_id)
 {
-	struct btf_node *res;
-
-	down_read(&env->bpf_progs.lock);
-	res = __perf_env__find_btf(env, btf_id);
-	up_read(&env->bpf_progs.lock);
-	return res;
-}
-
-struct btf_node *__perf_env__find_btf(struct perf_env *env, __u32 btf_id)
-{
 	struct btf_node *node = NULL;
 	struct rb_node *n;
 
+	down_read(&env->bpf_progs.lock);
 	n = env->bpf_progs.btfs.rb_node;
 
 	while (n) {
@@ -144,9 +124,13 @@ struct btf_node *__perf_env__find_btf(struct perf_env *env, __u32 btf_id)
 		else if (btf_id > node->id)
 			n = n->rb_right;
 		else
-			return node;
+			goto out;
 	}
-	return NULL;
+	node = NULL;
+
+out:
+	up_read(&env->bpf_progs.lock);
+	return node;
 }
 
 /* purge data in bpf_progs.infos tree */
@@ -469,23 +453,11 @@ const char *perf_env__arch(struct perf_env *env)
 	return normalize_arch(arch_name);
 }
 
-const char *perf_env__arch_strerrno(struct perf_env *env __maybe_unused, int err __maybe_unused)
-{
-#if defined(HAVE_SYSCALL_TABLE_SUPPORT) && defined(HAVE_LIBTRACEEVENT)
-	if (env->arch_strerrno == NULL)
-		env->arch_strerrno = arch_syscalls__strerrno_function(perf_env__arch(env));
-
-	return env->arch_strerrno ? env->arch_strerrno(err) : "no arch specific strerrno function";
-#else
-	return "!(HAVE_SYSCALL_TABLE_SUPPORT && HAVE_LIBTRACEEVENT)";
-#endif
-}
-
 const char *perf_env__cpuid(struct perf_env *env)
 {
 	int status;
 
-	if (!env->cpuid) { /* Assume local operation */
+	if (!env || !env->cpuid) { /* Assume local operation */
 		status = perf_env__read_cpuid(env);
 		if (status)
 			return NULL;
@@ -498,7 +470,7 @@ int perf_env__nr_pmu_mappings(struct perf_env *env)
 {
 	int status;
 
-	if (!env->nr_pmu_mappings) { /* Assume local operation */
+	if (!env || !env->nr_pmu_mappings) { /* Assume local operation */
 		status = perf_env__read_pmu_mappings(env);
 		if (status)
 			return 0;
@@ -511,7 +483,7 @@ const char *perf_env__pmu_mappings(struct perf_env *env)
 {
 	int status;
 
-	if (!env->pmu_mappings) { /* Assume local operation */
+	if (!env || !env->pmu_mappings) { /* Assume local operation */
 		status = perf_env__read_pmu_mappings(env);
 		if (status)
 			return NULL;
@@ -557,24 +529,6 @@ int perf_env__numa_node(struct perf_env *env, struct perf_cpu cpu)
 	}
 
 	return cpu.cpu >= 0 && cpu.cpu < env->nr_numa_map ? env->numa_map[cpu.cpu] : -1;
-}
-
-bool perf_env__has_pmu_mapping(struct perf_env *env, const char *pmu_name)
-{
-	char *pmu_mapping = env->pmu_mappings, *colon;
-
-	for (int i = 0; i < env->nr_pmu_mappings; ++i) {
-		if (strtoul(pmu_mapping, &colon, 0) == ULONG_MAX || *colon != ':')
-			goto out_error;
-
-		pmu_mapping = colon + 1;
-		if (strcmp(pmu_mapping, pmu_name) == 0)
-			return true;
-
-		pmu_mapping += strlen(pmu_mapping) + 1;
-	}
-out_error:
-	return false;
 }
 
 char *perf_env__find_pmu_cap(struct perf_env *env, const char *pmu_name,

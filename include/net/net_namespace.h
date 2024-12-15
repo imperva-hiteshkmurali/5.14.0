@@ -42,7 +42,6 @@
 #include <linux/idr.h>
 #include <linux/skbuff.h>
 #include <linux/notifier.h>
-#include <linux/xarray.h>
 
 #include <linux/rh_kabi.h>
 
@@ -69,10 +68,10 @@ struct net {
 						 */
 	spinlock_t		rules_mod_lock;
 
-	atomic_t		dev_unreg_count;
+	unsigned int		dev_unreg_count;
 
 	unsigned int		dev_base_seq;	/* protected by rtnl_mutex */
-	u32			ifindex;
+	int			ifindex;
 
 	spinlock_t		nsid_lock;
 	atomic_t		fnhe_genid;
@@ -111,7 +110,6 @@ struct net {
 
 	struct hlist_head 	*dev_name_head;
 	struct hlist_head	*dev_index_head;
-	struct xarray		dev_by_index;
 	struct raw_notifier_head	netdev_chain;
 
 	/* Note that @hash_mix can be read millions times per second,
@@ -352,30 +350,21 @@ static inline void put_net_track(struct net *net, netns_tracker *tracker)
 
 typedef struct {
 #ifdef CONFIG_NET_NS
-	struct net __rcu *net;
+	struct net *net;
 #endif
 } possible_net_t;
 
 static inline void write_pnet(possible_net_t *pnet, struct net *net)
 {
 #ifdef CONFIG_NET_NS
-	rcu_assign_pointer(pnet->net, net);
+	pnet->net = net;
 #endif
 }
 
 static inline struct net *read_pnet(const possible_net_t *pnet)
 {
 #ifdef CONFIG_NET_NS
-	return rcu_dereference_protected(pnet->net, true);
-#else
-	return &init_net;
-#endif
-}
-
-static inline struct net *read_pnet_rcu(possible_net_t *pnet)
-{
-#ifdef CONFIG_NET_NS
-	return rcu_dereference(pnet->net);
+	return pnet->net;
 #else
 	return &init_net;
 #endif
@@ -434,9 +423,6 @@ struct pernet_operations {
 	void (*pre_exit)(struct net *net);
 	void (*exit)(struct net *net);
 	void (*exit_batch)(struct list_head *net_exit_list);
-	/* Following method is called with RTNL held. */
-	void (*exit_batch_rtnl)(struct list_head *net_exit_list,
-				struct list_head *dev_kill_list);
 	unsigned int *id;
 	size_t size;
 };

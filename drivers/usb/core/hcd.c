@@ -357,10 +357,12 @@ static const u8 ss_rh_config_descriptor[] = {
 #define USB_AUTHORIZE_ALL	1
 #define USB_AUTHORIZE_INTERNAL	2
 
-static int authorized_default = CONFIG_USB_DEFAULT_AUTHORIZATION_MODE;
+static int authorized_default = USB_AUTHORIZE_WIRED;
 module_param(authorized_default, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(authorized_default,
-		"Default USB device authorization: 0 is not authorized, 1 is authorized (default), 2 is authorized for internal devices, -1 is authorized (same as 1)");
+		"Default USB device authorization: 0 is not authorized, 1 is "
+		"authorized, 2 is authorized for internal devices, -1 is "
+		"authorized (default, same as 1)");
 /*-------------------------------------------------------------------------*/
 
 /**
@@ -1623,7 +1625,6 @@ static void __usb_hcd_giveback_urb(struct urb *urb)
 	struct usb_hcd *hcd = bus_to_hcd(urb->dev->bus);
 	struct usb_anchor *anchor = urb->anchor;
 	int status = urb->unlinked;
-	unsigned long flags;
 
 	urb->hcpriv = NULL;
 	if (unlikely((urb->transfer_flags & URB_SHORT_NOT_OK) &&
@@ -1641,14 +1642,13 @@ static void __usb_hcd_giveback_urb(struct urb *urb)
 	/* pass ownership to the completion handler */
 	urb->status = status;
 	/*
-	 * Only collect coverage in the softirq context and disable interrupts
-	 * to avoid scenarios with nested remote coverage collection sections
-	 * that KCOV does not support.
-	 * See the comment next to kcov_remote_start_usb_softirq() for details.
+	 * This function can be called in task context inside another remote
+	 * coverage collection section, but kcov doesn't support that kind of
+	 * recursion yet. Only collect coverage in softirq context for now.
 	 */
-	flags = kcov_remote_start_usb_softirq((u64)urb->dev->bus->busnum);
+	kcov_remote_start_usb_softirq((u64)urb->dev->bus->busnum);
 	urb->complete(urb);
-	kcov_remote_stop_softirq(flags);
+	kcov_remote_stop_softirq();
 
 	usb_anchor_resume_wakeups(anchor);
 	atomic_dec(&urb->use_count);
@@ -1664,10 +1664,9 @@ static void __usb_hcd_giveback_urb(struct urb *urb)
 	usb_put_urb(urb);
 }
 
-static void usb_giveback_urb_bh(struct work_struct *work)
+static void usb_giveback_urb_bh(struct tasklet_struct *t)
 {
-	struct giveback_urb_bh *bh =
-		container_of(work, struct giveback_urb_bh, bh);
+	struct giveback_urb_bh *bh = from_tasklet(bh, t, bh);
 	struct list_head local_list;
 
 	spin_lock_irq(&bh->lock);
@@ -1692,9 +1691,9 @@ static void usb_giveback_urb_bh(struct work_struct *work)
 	spin_lock_irq(&bh->lock);
 	if (!list_empty(&bh->head)) {
 		if (bh->high_prio)
-			queue_work(system_bh_highpri_wq, &bh->bh);
+			tasklet_hi_schedule(&bh->bh);
 		else
-			queue_work(system_bh_wq, &bh->bh);
+			tasklet_schedule(&bh->bh);
 	}
 	bh->running = false;
 	spin_unlock_irq(&bh->lock);
@@ -1707,7 +1706,7 @@ static void usb_giveback_urb_bh(struct work_struct *work)
  * @status: completion status code for the URB.
  *
  * Context: atomic. The completion callback is invoked in caller's context.
- * For HCDs with HCD_BH flag set, the completion callback is invoked in BH
+ * For HCDs with HCD_BH flag set, the completion callback is invoked in tasklet
  * context (except for URBs submitted to the root hub which always complete in
  * caller's context).
  *
@@ -1726,7 +1725,7 @@ void usb_hcd_giveback_urb(struct usb_hcd *hcd, struct urb *urb, int status)
 	struct giveback_urb_bh *bh;
 	bool running;
 
-	/* pass status to BH via unlinked */
+	/* pass status to tasklet via unlinked */
 	if (likely(!urb->unlinked))
 		urb->unlinked = status;
 
@@ -1748,9 +1747,9 @@ void usb_hcd_giveback_urb(struct usb_hcd *hcd, struct urb *urb, int status)
 	if (running)
 		;
 	else if (bh->high_prio)
-		queue_work(system_bh_highpri_wq, &bh->bh);
+		tasklet_hi_schedule(&bh->bh);
 	else
-		queue_work(system_bh_wq, &bh->bh);
+		tasklet_schedule(&bh->bh);
 }
 EXPORT_SYMBOL_GPL(usb_hcd_giveback_urb);
 
@@ -2541,7 +2540,7 @@ static void init_giveback_urb_bh(struct giveback_urb_bh *bh)
 
 	spin_lock_init(&bh->lock);
 	INIT_LIST_HEAD(&bh->head);
-	INIT_WORK(&bh->bh, usb_giveback_urb_bh);
+	tasklet_setup(&bh->bh, usb_giveback_urb_bh);
 }
 
 struct usb_hcd *__usb_create_hcd(const struct hc_driver *driver,
@@ -2795,16 +2794,10 @@ int usb_add_hcd(struct usb_hcd *hcd,
 	struct usb_device *rhdev;
 	struct usb_hcd *shared_hcd;
 
-	if (!hcd->skip_phy_initialization) {
-		if (usb_hcd_is_primary_hcd(hcd)) {
-			hcd->phy_roothub = usb_phy_roothub_alloc(hcd->self.sysdev);
-			if (IS_ERR(hcd->phy_roothub))
-				return PTR_ERR(hcd->phy_roothub);
-		} else {
-			hcd->phy_roothub = usb_phy_roothub_alloc_usb3_phy(hcd->self.sysdev);
-			if (IS_ERR(hcd->phy_roothub))
-				return PTR_ERR(hcd->phy_roothub);
-		}
+	if (!hcd->skip_phy_initialization && usb_hcd_is_primary_hcd(hcd)) {
+		hcd->phy_roothub = usb_phy_roothub_alloc(hcd->self.sysdev);
+		if (IS_ERR(hcd->phy_roothub))
+			return PTR_ERR(hcd->phy_roothub);
 
 		retval = usb_phy_roothub_init(hcd->phy_roothub);
 		if (retval)
@@ -2933,7 +2926,7 @@ int usb_add_hcd(struct usb_hcd *hcd,
 			&& device_can_wakeup(&hcd->self.root_hub->dev))
 		dev_dbg(hcd->self.controller, "supports USB remote wakeup\n");
 
-	/* initialize BHs */
+	/* initialize tasklets */
 	init_giveback_urb_bh(&hcd->high_prio_bh);
 	hcd->high_prio_bh.high_prio = true;
 	init_giveback_urb_bh(&hcd->low_prio_bh);
@@ -3043,7 +3036,7 @@ void usb_remove_hcd(struct usb_hcd *hcd)
 	mutex_unlock(&usb_bus_idr_lock);
 
 	/*
-	 * flush_work() isn't needed here because:
+	 * tasklet_kill() isn't needed here because:
 	 * - driver's disconnect() called from usb_disconnect() should
 	 *   make sure its URBs are completed during the disconnect()
 	 *   callback

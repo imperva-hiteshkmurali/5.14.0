@@ -22,7 +22,6 @@
 #include <asm/ipl.h>
 #include <asm/sclp.h>
 #include <asm/maccess.h>
-#include <asm/fpu.h>
 
 #define PTR_ADD(x, y) (((char *) (x)) + ((unsigned long) (y)))
 #define PTR_SUB(x, y) (((char *) (x)) - ((unsigned long) (y)))
@@ -111,7 +110,7 @@ void __init save_area_add_vxrs(struct save_area *sa, __vector128 *vxrs)
 
 	/* Copy lower halves of vector registers 0-15 */
 	for (i = 0; i < 16; i++)
-		sa->vxrs_low[i] = vxrs[i].low;
+		memcpy(&sa->vxrs_low[i], &vxrs[i].u[2], 8);
 	/* Copy vector registers 16-31 */
 	memcpy(sa->vxrs_high, vxrs + 16, 16 * sizeof(__vector128));
 }
@@ -154,7 +153,7 @@ int copy_oldmem_kernel(void *dst, unsigned long src, size_t count)
 
 	kvec.iov_base = dst;
 	kvec.iov_len = count;
-	iov_iter_kvec(&iter, READ, &kvec, 1, count);
+	iov_iter_kvec(&iter, WRITE, &kvec, 1, count);
 	if (copy_oldmem_iter(&iter, src, count) < count)
 		return -EFAULT;
 	return 0;
@@ -320,7 +319,7 @@ static void *fill_cpu_elf_notes(void *ptr, int cpu, struct save_area *sa)
 	ptr = nt_init(ptr, NT_S390_TODPREG, &sa->todpreg, sizeof(sa->todpreg));
 	ptr = nt_init(ptr, NT_S390_CTRS, &sa->ctrs, sizeof(sa->ctrs));
 	ptr = nt_init(ptr, NT_S390_PREFIX, &sa->prefix, sizeof(sa->prefix));
-	if (cpu_has_vx()) {
+	if (MACHINE_HAS_VX) {
 		ptr = nt_init(ptr, NT_S390_VXRS_HIGH,
 			      &sa->vxrs_high, sizeof(sa->vxrs_high));
 		ptr = nt_init(ptr, NT_S390_VXRS_LOW,
@@ -344,7 +343,7 @@ static size_t get_cpu_elf_notes_size(void)
 	size +=  nt_size(NT_S390_TODPREG, sizeof(sa->todpreg));
 	size +=  nt_size(NT_S390_CTRS, sizeof(sa->ctrs));
 	size +=  nt_size(NT_S390_PREFIX, sizeof(sa->prefix));
-	if (cpu_has_vx()) {
+	if (MACHINE_HAS_VX) {
 		size += nt_size(NT_S390_VXRS_HIGH, sizeof(sa->vxrs_high));
 		size += nt_size(NT_S390_VXRS_LOW, sizeof(sa->vxrs_low));
 	}

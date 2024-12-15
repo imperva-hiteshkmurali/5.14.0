@@ -102,6 +102,7 @@ struct htb_class {
 
 	struct tcf_proto __rcu	*filter_list;	/* class attached filters */
 	struct tcf_block	*block;
+	int			filter_cnt;
 
 	int			level;		/* our level (see above) */
 	unsigned int		children;
@@ -1039,6 +1040,13 @@ static void htb_work_func(struct work_struct *work)
 	rcu_read_unlock();
 }
 
+static void htb_set_lockdep_class_child(struct Qdisc *q)
+{
+	static struct lock_class_key child_key;
+
+	lockdep_set_class(qdisc_lock(q), &child_key);
+}
+
 static int htb_offload(struct net_device *dev, struct tc_htb_qopt_offload *opt)
 {
 	return dev->netdev_ops->ndo_setup_tc(dev, TC_SETUP_QDISC_HTB, opt);
@@ -1125,6 +1133,7 @@ static int htb_init(struct Qdisc *sch, struct nlattr *opt,
 			return -ENOMEM;
 		}
 
+		htb_set_lockdep_class_child(qdisc);
 		q->direct_qdiscs[ntx] = qdisc;
 		qdisc->flags |= TCQ_F_ONETXQUEUE | TCQ_F_NOPARENT;
 	}
@@ -1460,6 +1469,7 @@ static int htb_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 	}
 
 	if (q->offload) {
+		htb_set_lockdep_class_child(new);
 		/* One ref for cl->leaf.q, the other for dev_queue->qdisc. */
 		qdisc_refcount_inc(new);
 		old_q = htb_graft_helper(dev_queue, new);
@@ -1700,7 +1710,7 @@ static int htb_delete(struct Qdisc *sch, unsigned long arg,
 	 * tc subsys guarantee us that in htb_destroy it holds no class
 	 * refs so that we can remove children safely there ?
 	 */
-	if (cl->children || qdisc_class_in_use(&cl->common)) {
+	if (cl->children || cl->filter_cnt) {
 		NL_SET_ERR_MSG(extack, "HTB class in use");
 		return -EBUSY;
 	}
@@ -1724,8 +1734,11 @@ static int htb_delete(struct Qdisc *sch, unsigned long arg,
 		new_q = qdisc_create_dflt(dev_queue, &pfifo_qdisc_ops,
 					  cl->parent->common.classid,
 					  NULL);
-		if (q->offload)
+		if (q->offload) {
+			if (new_q)
+				htb_set_lockdep_class_child(new_q);
 			htb_parent_to_leaf_offload(sch, dev_queue, new_q);
+		}
 	}
 
 	sch_tree_lock(sch);
@@ -1935,9 +1948,13 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 		new_q = qdisc_create_dflt(dev_queue, &pfifo_qdisc_ops,
 					  classid, NULL);
 		if (q->offload) {
-			/* One ref for cl->leaf.q, the other for dev_queue->qdisc. */
-			if (new_q)
+			if (new_q) {
+				htb_set_lockdep_class_child(new_q);
+				/* One ref for cl->leaf.q, the other for
+				 * dev_queue->qdisc.
+				 */
 				qdisc_refcount_inc(new_q);
+			}
 			old_q = htb_graft_helper(dev_queue, new_q);
 			/* No qdisc_put needed. */
 			WARN_ON(!(old_q->flags & TCQ_F_BUILTIN));
@@ -2092,7 +2109,7 @@ static unsigned long htb_bind_filter(struct Qdisc *sch, unsigned long parent,
 	 * be broken by class during destroy IIUC.
 	 */
 	if (cl)
-		qdisc_class_get(&cl->common);
+		cl->filter_cnt++;
 	return (unsigned long)cl;
 }
 
@@ -2100,7 +2117,8 @@ static void htb_unbind_filter(struct Qdisc *sch, unsigned long arg)
 {
 	struct htb_class *cl = (struct htb_class *)arg;
 
-	qdisc_class_put(&cl->common);
+	if (cl)
+		cl->filter_cnt--;
 }
 
 static void htb_walk(struct Qdisc *sch, struct qdisc_walker *arg)
@@ -2163,4 +2181,3 @@ static void __exit htb_module_exit(void)
 module_init(htb_module_init)
 module_exit(htb_module_exit)
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Hierarchical Token Bucket scheduler");

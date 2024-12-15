@@ -1,3 +1,2 @@
-#5-
-0xdd3ce199	kthread_destroy_worker	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x1f597446	kthread_destroy_worker	vmlinux	EXPORT_SYMBOL	

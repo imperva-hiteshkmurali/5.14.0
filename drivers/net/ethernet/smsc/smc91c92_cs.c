@@ -666,13 +666,14 @@ static int pcmcia_osi_mac(struct pcmcia_device *p_dev,
 			  void *priv)
 {
 	struct net_device *dev = priv;
+	int i;
 
 	if (tuple->TupleDataLen < 8)
 		return -EINVAL;
 	if (tuple->TupleData[0] != 0x04)
 		return -EINVAL;
-
-	eth_hw_addr_set(dev, &tuple->TupleData[2]);
+	for (i = 0; i < 6; i++)
+		dev->dev_addr[i] = tuple->TupleData[i+2];
 	return 0;
 };
 

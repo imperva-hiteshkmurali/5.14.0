@@ -356,7 +356,7 @@ static int idxd_init_evl(struct idxd_device *idxd)
 	if (!evl)
 		return -ENOMEM;
 
-	mutex_init(&evl->lock);
+	spin_lock_init(&evl->lock);
 	evl->size = IDXD_EVL_SIZE_MIN;
 
 	idxd_name = dev_name(idxd_confdev(idxd));

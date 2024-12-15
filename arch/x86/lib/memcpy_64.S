@@ -2,13 +2,12 @@
 /* Copyright 2002 Andi Kleen */
 
 #include <linux/linkage.h>
-#include <linux/cfi_types.h>
 #include <asm/errno.h>
 #include <asm/cpufeatures.h>
 #include <asm/alternative.h>
 #include <asm/export.h>
 
-.section .noinstr.text, "ax"
+.pushsection .noinstr.text, "ax"
 
 /*
  * We build a jump to memcpy_orig by default which gets NOPped out on
@@ -28,7 +27,7 @@
  * Output:
  * rax original destination
  */
-SYM_TYPED_FUNC_START(__memcpy)
+SYM_FUNC_START(__memcpy)
 	ALTERNATIVE_2 "jmp memcpy_orig", "", X86_FEATURE_REP_GOOD, \
 		      "jmp memcpy_erms", X86_FEATURE_ERMS
 
@@ -43,7 +42,7 @@ SYM_TYPED_FUNC_START(__memcpy)
 SYM_FUNC_END(__memcpy)
 EXPORT_SYMBOL(__memcpy)
 
-SYM_FUNC_ALIAS_MEMFUNC(memcpy, __memcpy)
+SYM_FUNC_ALIAS_WEAK(memcpy, __memcpy)
 EXPORT_SYMBOL(memcpy)
 
 /*
@@ -184,3 +183,4 @@ SYM_FUNC_START_LOCAL(memcpy_orig)
 	RET
 SYM_FUNC_END(memcpy_orig)
 
+.popsection

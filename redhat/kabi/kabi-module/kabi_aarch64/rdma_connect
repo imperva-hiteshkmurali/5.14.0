@@ -1,3 +1,2 @@
-#5-
-0xb4bc3111	rdma_connect	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	
-
+#4-
+0x70682f83	rdma_connect	drivers/infiniband/core/rdma_cm	EXPORT_SYMBOL	

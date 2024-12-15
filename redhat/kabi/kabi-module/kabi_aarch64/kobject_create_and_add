@@ -1,3 +1,2 @@
-#5-
-0x63800b63	kobject_create_and_add	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x5ba7f25e	kobject_create_and_add	vmlinux	EXPORT_SYMBOL_GPL	

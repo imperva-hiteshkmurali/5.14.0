@@ -100,9 +100,11 @@ static int byt_resume(struct snd_sof_dev *sdev)
 	return 0;
 }
 
-static void byt_remove(struct snd_sof_dev *sdev)
+static int byt_remove(struct snd_sof_dev *sdev)
 {
 	byt_reset_dsp_disable_int(sdev);
+
+	return 0;
 }
 
 static int byt_acpi_probe(struct snd_sof_dev *sdev)
@@ -372,16 +374,16 @@ static const struct sof_dev_desc sof_acpi_baytrailcr_desc = {
 	.resindex_imr_base = 2,
 	.irqindex_host_ipc = 0,
 	.chip_info = &byt_chip_info,
-	.ipc_supported_mask = BIT(SOF_IPC_TYPE_3),
-	.ipc_default = SOF_IPC_TYPE_3,
+	.ipc_supported_mask = BIT(SOF_IPC),
+	.ipc_default = SOF_IPC,
 	.default_fw_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof",
+		[SOF_IPC] = "intel/sof",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof-tplg",
+		[SOF_IPC] = "intel/sof-tplg",
 	},
 	.default_fw_filename = {
-		[SOF_IPC_TYPE_3] = "sof-byt.ri",
+		[SOF_IPC] = "sof-byt.ri",
 	},
 	.nocodec_tplg_filename = "sof-byt-nocodec.tplg",
 	.ops = &sof_byt_ops,
@@ -394,16 +396,16 @@ static const struct sof_dev_desc sof_acpi_baytrail_desc = {
 	.resindex_imr_base = 2,
 	.irqindex_host_ipc = 5,
 	.chip_info = &byt_chip_info,
-	.ipc_supported_mask = BIT(SOF_IPC_TYPE_3),
-	.ipc_default = SOF_IPC_TYPE_3,
+	.ipc_supported_mask = BIT(SOF_IPC),
+	.ipc_default = SOF_IPC,
 	.default_fw_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof",
+		[SOF_IPC] = "intel/sof",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof-tplg",
+		[SOF_IPC] = "intel/sof-tplg",
 	},
 	.default_fw_filename = {
-		[SOF_IPC_TYPE_3] = "sof-byt.ri",
+		[SOF_IPC] = "sof-byt.ri",
 	},
 	.nocodec_tplg_filename = "sof-byt-nocodec.tplg",
 	.ops = &sof_byt_ops,
@@ -416,16 +418,16 @@ static const struct sof_dev_desc sof_acpi_cherrytrail_desc = {
 	.resindex_imr_base = 2,
 	.irqindex_host_ipc = 5,
 	.chip_info = &cht_chip_info,
-	.ipc_supported_mask = BIT(SOF_IPC_TYPE_3),
-	.ipc_default = SOF_IPC_TYPE_3,
+	.ipc_supported_mask = BIT(SOF_IPC),
+	.ipc_default = SOF_IPC,
 	.default_fw_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof",
+		[SOF_IPC] = "intel/sof",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_3] = "intel/sof-tplg",
+		[SOF_IPC] = "intel/sof-tplg",
 	},
 	.default_fw_filename = {
-		[SOF_IPC_TYPE_3] = "sof-cht.ri",
+		[SOF_IPC] = "sof-cht.ri",
 	},
 	.nocodec_tplg_filename = "sof-cht-nocodec.tplg",
 	.ops = &sof_cht_ops,

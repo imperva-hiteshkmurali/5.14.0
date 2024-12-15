@@ -38,6 +38,7 @@ void entry_SYSRETL_compat_end(void);
 #endif
 
 void x86_configure_nx(void);
+void x86_report_nx(void);
 
 extern int reboot_force;
 

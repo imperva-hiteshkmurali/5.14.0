@@ -31,6 +31,7 @@
 #include <linux/dmaengine.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_device.h>
 #include <linux/of_dma.h>
 #include <linux/workqueue.h>
 
@@ -421,7 +422,9 @@ struct sdma_desc {
  * @shp_addr:		value for gReg[6]
  * @per_addr:		value for gReg[2]
  * @status:		status of dma channel
+ * @context_loaded:	ensure context is only loaded once
  * @data:		specific sdma interface structure
+ * @bd_pool:		dma_pool for bd
  * @terminate_worker:	used to call back into terminate work function
  * @terminated:		terminated list
  * @is_ram_script:	flag for script in ram
@@ -484,6 +487,8 @@ struct sdma_channel {
  * @num_script_addrs:	Number of script addresses in this image
  * @ram_code_start:	offset of SDMA ram image in this firmware image
  * @ram_code_size:	size of SDMA ram image
+ * @script_addrs:	Stores the start address of the SDMA scripts
+ *			(in SDMA memory space)
  */
 struct sdma_firmware_header {
 	u32	magic;
@@ -2354,7 +2359,7 @@ err_clk:
 	return ret;
 }
 
-static void sdma_remove(struct platform_device *pdev)
+static int sdma_remove(struct platform_device *pdev)
 {
 	struct sdma_engine *sdma = platform_get_drvdata(pdev);
 	int i;
@@ -2373,6 +2378,7 @@ static void sdma_remove(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, NULL);
+	return 0;
 }
 
 static struct platform_driver sdma_driver = {
@@ -2380,7 +2386,7 @@ static struct platform_driver sdma_driver = {
 		.name	= "imx-sdma",
 		.of_match_table = sdma_dt_ids,
 	},
-	.remove_new	= sdma_remove,
+	.remove		= sdma_remove,
 	.probe		= sdma_probe,
 };
 

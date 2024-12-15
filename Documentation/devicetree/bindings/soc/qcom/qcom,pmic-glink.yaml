@@ -36,8 +36,14 @@ properties:
 patternProperties:
   '^connector@\d$':
     $ref: /schemas/connector/usb-connector.yaml#
+
+    properties:
+      reg: true
+
     required:
       - reg
+
+    unevaluatedProperties: false
 
 required:
   - compatible

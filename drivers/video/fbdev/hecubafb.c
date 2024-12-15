@@ -115,7 +115,8 @@ static void hecubafb_dpy_update(struct hecubafb_par *par)
 }
 
 /* this is called back from the deferred io workqueue */
-static void hecubafb_dpy_deferred_io(struct fb_info *info, struct list_head *pagereflist)
+static void hecubafb_dpy_deferred_io(struct fb_info *info,
+				struct list_head *pagelist)
 {
 	hecubafb_dpy_update(info->par);
 }
@@ -163,8 +164,8 @@ static ssize_t hecubafb_write(struct fb_info *info, const char __user *buf,
 	int err = 0;
 	unsigned long total_size;
 
-	if (!info->screen_buffer)
-		return -ENODEV;
+	if (info->state != FBINFO_STATE_RUNNING)
+		return -EPERM;
 
 	total_size = info->fix.smem_len;
 
@@ -251,7 +252,7 @@ static int hecubafb_probe(struct platform_device *dev)
 	par->send_command = apollo_send_command;
 	par->send_data = apollo_send_data;
 
-	info->flags = FBINFO_VIRTFB;
+	info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
 
 	info->fbdefio = &hecubafb_defio;
 	fb_deferred_io_init(info);

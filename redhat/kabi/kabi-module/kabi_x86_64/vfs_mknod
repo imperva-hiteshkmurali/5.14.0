@@ -1,3 +1,2 @@
-#5-
-0x3105da46	vfs_mknod	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x13edc7ec	vfs_mknod	vmlinux	EXPORT_SYMBOL	

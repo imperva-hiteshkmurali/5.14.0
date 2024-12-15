@@ -69,7 +69,6 @@
 #include <net/xfrm.h>
 #include <net/secure_seq.h>
 #include <net/busy_poll.h>
-#include <net/rstreason.h>
 
 #include <linux/inet.h>
 #include <linux/ipv6.h>
@@ -672,8 +671,7 @@ EXPORT_SYMBOL(tcp_v4_send_check);
 #define OPTION_BYTES sizeof(__be32)
 #endif
 
-static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb,
-			      enum sk_rst_reason reason)
+static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 {
 	const struct tcphdr *th = tcp_hdr(skb);
 	struct {
@@ -808,10 +806,11 @@ static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb,
 	 * routing might fail in this case. No choice here, if we choose to force
 	 * input interface, we will misroute in case of asymmetric route.
 	 */
-	if (sk)
+	if (sk) {
 		arg.bound_dev_if = sk->sk_bound_dev_if;
-
-	trace_tcp_send_reset(sk, skb, reason);
+		if (sk_fullsock(sk))
+			trace_tcp_send_reset(sk, skb);
+	}
 
 	BUILD_BUG_ON(offsetof(struct sock, sk_bound_dev_if) !=
 		     offsetof(struct inet_timewait_sock, tw_bound_dev_if));
@@ -1662,6 +1661,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		return 0;
 	}
 
+	reason = SKB_DROP_REASON_NOT_SPECIFIED;
 	if (tcp_checksum_complete(skb))
 		goto csum_err;
 
@@ -1669,10 +1669,9 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		struct sock *nsk = tcp_v4_cookie_check(sk, skb);
 
 		if (!nsk)
-			return 0;
+			goto discard;
 		if (nsk != sk) {
-			reason = tcp_child_process(sk, nsk, skb);
-			if (reason) {
+			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
 				goto reset;
 			}
@@ -1681,17 +1680,16 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 	} else
 		sock_rps_save_rxhash(sk, skb);
 
-	reason = tcp_rcv_state_process(sk, skb);
-	if (reason) {
+	if (tcp_rcv_state_process(sk, skb)) {
 		rsk = sk;
 		goto reset;
 	}
 	return 0;
 
 reset:
-	tcp_v4_send_reset(rsk, skb, sk_rst_convert_drop_reason(reason));
+	tcp_v4_send_reset(rsk, skb);
 discard:
-	sk_skb_reason_drop(sk, skb, reason);
+	kfree_skb_reason(skb, reason);
 	/* Be careful here. If this function gets more complicated and
 	 * gcc suffers from register pressure on the x86, sk (in %ebx)
 	 * might be destroyed here. This current version compiles correctly,
@@ -1800,8 +1798,10 @@ bool tcp_add_backlog(struct sock *sk, struct sk_buff *skb,
 	      TCP_SKB_CB(skb)->tcp_flags) & TCPHDR_ACK) ||
 	    ((TCP_SKB_CB(tail)->tcp_flags ^
 	      TCP_SKB_CB(skb)->tcp_flags) & (TCPHDR_ECE | TCPHDR_CWR)) ||
+#ifdef CONFIG_TLS_DEVICE
+	    tail->decrypted != skb->decrypted ||
+#endif
 	    !mptcp_skb_can_collapse(tail, skb) ||
-	    skb_cmp_decrypted(tail, skb) ||
 	    thtail->doff != th->doff ||
 	    memcmp(thtail + 1, th + 1, hdrlen - sizeof(*th)))
 		goto no_coalesce;
@@ -1920,8 +1920,8 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	int dif = inet_iif(skb);
 	const struct iphdr *iph;
 	const struct tcphdr *th;
-	struct sock *sk = NULL;
 	bool refcounted;
+	struct sock *sk;
 	int ret;
 
 	drop_reason = SKB_DROP_REASON_NOT_SPECIFIED;
@@ -2029,15 +2029,10 @@ process:
 		if (nsk == sk) {
 			reqsk_put(req);
 			tcp_v4_restore_cb(skb);
+		} else if (tcp_child_process(sk, nsk, skb)) {
+			tcp_v4_send_reset(nsk, skb);
+			goto discard_and_relse;
 		} else {
-			drop_reason = tcp_child_process(sk, nsk, skb);
-			if (drop_reason) {
-				enum sk_rst_reason rst_reason;
-
-				rst_reason = sk_rst_convert_drop_reason(drop_reason);
-				tcp_v4_send_reset(nsk, skb, rst_reason);
-				goto discard_and_relse;
-			}
 			sock_put(sk);
 			return 0;
 		}
@@ -2109,13 +2104,13 @@ csum_error:
 bad_packet:
 		__TCP_INC_STATS(net, TCP_MIB_INERRS);
 	} else {
-		tcp_v4_send_reset(NULL, skb, sk_rst_convert_drop_reason(drop_reason));
+		tcp_v4_send_reset(NULL, skb);
 	}
 
 discard_it:
 	SKB_DR_OR(drop_reason, NOT_SPECIFIED);
 	/* Discard frame. */
-	sk_skb_reason_drop(sk, skb, drop_reason);
+	kfree_skb_reason(skb, drop_reason);
 	return 0;
 
 discard_and_relse:
@@ -2160,7 +2155,7 @@ do_time_wait:
 		tcp_v4_timewait_ack(sk, skb);
 		break;
 	case TCP_TW_RST:
-		tcp_v4_send_reset(sk, skb, SK_RST_REASON_TCP_TIMEWAIT_SOCKET);
+		tcp_v4_send_reset(sk, skb);
 		inet_twsk_deschedule_put(inet_twsk(sk));
 		goto discard_it;
 	case TCP_TW_SUCCESS:;

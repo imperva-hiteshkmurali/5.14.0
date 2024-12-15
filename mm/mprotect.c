@@ -185,7 +185,7 @@ static long change_pte_range(struct mmu_gather *tlb,
 			if ((cp_flags & MM_CP_TRY_CHANGE_WRITABLE) &&
 			    !pte_write(ptent) &&
 			    can_change_pte_writable(vma, addr, ptent))
-				ptent = pte_mkwrite(ptent, vma);
+				ptent = pte_mkwrite(ptent);
 
 			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
 			if (pte_needs_flush(oldpte, ptent))
@@ -382,7 +382,7 @@ again:
 		if (!range.start) {
 			mmu_notifier_range_init(&range,
 				MMU_NOTIFY_PROTECTION_VMA, 0,
-				vma->vm_mm, addr, end);
+				vma, vma->vm_mm, addr, end);
 			mmu_notifier_invalidate_range_start(&range);
 		}
 
@@ -566,13 +566,12 @@ static const struct mm_walk_ops prot_none_walk_ops = {
 	.pte_entry		= prot_none_pte_entry,
 	.hugetlb_entry		= prot_none_hugetlb_entry,
 	.test_walk		= prot_none_test,
-	.walk_lock		= PGWALK_WRLOCK,
 };
 
 int
-mprotect_fixup(struct vma_iterator *vmi, struct mmu_gather *tlb,
-	       struct vm_area_struct *vma, struct vm_area_struct **pprev,
-	       unsigned long start, unsigned long end, unsigned long newflags)
+mprotect_fixup(struct mmu_gather *tlb, struct vm_area_struct *vma,
+	       struct vm_area_struct **pprev, unsigned long start,
+	       unsigned long end, unsigned long newflags)
 {
 	struct mm_struct *mm = vma->vm_mm;
 	unsigned long oldflags = vma->vm_flags;
@@ -627,7 +626,7 @@ mprotect_fixup(struct vma_iterator *vmi, struct mmu_gather *tlb,
 	 * First try to merge with previous and/or next vma.
 	 */
 	pgoff = vma->vm_pgoff + ((start - vma->vm_start) >> PAGE_SHIFT);
-	*pprev = vma_merge(vmi, mm, *pprev, start, end, newflags,
+	*pprev = vma_merge(mm, *pprev, start, end, newflags,
 			   vma->anon_vma, vma->vm_file, pgoff, vma_policy(vma),
 			   vma->vm_userfaultfd_ctx, anon_vma_name(vma));
 	if (*pprev) {
@@ -639,13 +638,13 @@ mprotect_fixup(struct vma_iterator *vmi, struct mmu_gather *tlb,
 	*pprev = vma;
 
 	if (start != vma->vm_start) {
-		error = split_vma(vmi, vma, start, 1);
+		error = split_vma(mm, vma, start, 1);
 		if (error)
 			goto fail;
 	}
 
 	if (end != vma->vm_end) {
-		error = split_vma(vmi, vma, end, 0);
+		error = split_vma(mm, vma, end, 0);
 		if (error)
 			goto fail;
 	}
@@ -655,8 +654,7 @@ success:
 	 * vm_flags and vm_page_prot are protected by the mmap_lock
 	 * held in write mode.
 	 */
-	vma_start_write(vma);
-	vm_flags_reset(vma, newflags);
+	vma->vm_flags = newflags;
 	if (vma_wants_manual_pte_write_upgrade(vma))
 		mm_cp_flags |= MM_CP_TRY_CHANGE_WRITABLE;
 	vma_set_page_prot(vma);
@@ -695,7 +693,6 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	const bool rier = (current->personality & READ_IMPLIES_EXEC) &&
 				(prot & PROT_READ);
 	struct mmu_gather tlb;
-	struct vma_iterator vmi;
 
 	start = untagged_addr(start);
 
@@ -727,8 +724,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	if ((pkey != -1) && !mm_pkey_is_allocated(current->mm, pkey))
 		goto out;
 
-	vma_iter_init(&vmi, current->mm, start);
-	vma = vma_find(&vmi, end);
+	vma = find_vma(current->mm, start);
 	error = -ENOMEM;
 	if (!vma)
 		goto out;
@@ -751,22 +747,18 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		}
 	}
 
-	prev = vma_prev(&vmi);
 	if (start > vma->vm_start)
 		prev = vma;
+	else
+		prev = vma->vm_prev;
 
 	tlb_gather_mmu(&tlb, current->mm);
-	nstart = start;
-	tmp = vma->vm_start;
-	for_each_vma_range(vmi, vma, end) {
+	for (nstart = start ; ; ) {
 		unsigned long mask_off_old_flags;
 		unsigned long newflags;
 		int new_vma_pkey;
 
-		if (vma->vm_start != tmp) {
-			error = -ENOMEM;
-			break;
-		}
+		/* Here we know that vma->vm_start <= nstart < vma->vm_end. */
 
 		/* Does the application expect PROT_READ to imply PROT_EXEC */
 		if (rier && (vma->vm_flags & VM_MAYEXEC))
@@ -777,7 +769,8 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		 * If a permission is not passed to mprotect(), it must be
 		 * cleared from the VMA.
 		 */
-		mask_off_old_flags = VM_ACCESS_FLAGS | VM_FLAGS_CLEAR;
+		mask_off_old_flags = VM_READ | VM_WRITE | VM_EXEC |
+					VM_FLAGS_CLEAR;
 
 		new_vma_pkey = arch_override_mprotect_pkey(vma, prot, pkey);
 		newflags = calc_vm_prot_bits(prot, new_vma_pkey);
@@ -785,11 +778,6 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 
 		/* newflags >> 4 shift VM_MAY% in place of VM_% */
 		if ((newflags & ~(newflags >> 4)) & VM_ACCESS_FLAGS) {
-			error = -EACCES;
-			break;
-		}
-
-		if (map_deny_write_exec(vma, newflags)) {
 			error = -EACCES;
 			break;
 		}
@@ -814,19 +802,25 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 				break;
 		}
 
-		error = mprotect_fixup(&vmi, &tlb, vma, &prev, nstart, tmp, newflags);
+		error = mprotect_fixup(&tlb, vma, &prev, nstart, tmp, newflags);
 		if (error)
 			break;
 
-		tmp = vma_iter_end(&vmi);
 		nstart = tmp;
+
+		if (nstart < prev->vm_end)
+			nstart = prev->vm_end;
+		if (nstart >= end)
+			break;
+
+		vma = prev->vm_next;
+		if (!vma || vma->vm_start != nstart) {
+			error = -ENOMEM;
+			break;
+		}
 		prot = reqprot;
 	}
 	tlb_finish_mmu(&tlb);
-
-	if (!error && tmp < end)
-		error = -ENOMEM;
-
 out:
 	mmap_write_unlock(current->mm);
 	return error;

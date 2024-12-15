@@ -582,18 +582,16 @@ static int romfs_init_fs_context(struct fs_context *fc)
  */
 static void romfs_kill_sb(struct super_block *sb)
 {
-	generic_shutdown_super(sb);
-
 #ifdef CONFIG_ROMFS_ON_MTD
 	if (sb->s_mtd) {
-		put_mtd_device(sb->s_mtd);
-		sb->s_mtd = NULL;
+		kill_mtd_super(sb);
+		return;
 	}
 #endif
 #ifdef CONFIG_ROMFS_ON_BLOCK
 	if (sb->s_bdev) {
-		sync_blockdev(sb->s_bdev);
-		bdev_fput(sb->s_bdev_file);
+		kill_block_super(sb);
+		return;
 	}
 #endif
 }

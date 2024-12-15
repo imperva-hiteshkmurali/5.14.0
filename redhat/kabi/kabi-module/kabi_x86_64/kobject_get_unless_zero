@@ -1,3 +1,2 @@
-#5-
-0xd1452342	kobject_get_unless_zero	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x2369591f	kobject_get_unless_zero	vmlinux	EXPORT_SYMBOL	

@@ -1,3 +1,2 @@
-#5-
-0x440e9c9b	ethtool_op_get_ts_info	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x86c621be	ethtool_op_get_ts_info	vmlinux	EXPORT_SYMBOL	

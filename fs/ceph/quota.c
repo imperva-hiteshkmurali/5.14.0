@@ -47,15 +47,17 @@ void ceph_handle_quota(struct ceph_mds_client *mdsc,
 	struct inode *inode;
 	struct ceph_inode_info *ci;
 
-	if (!ceph_inc_mds_stopping_blocker(mdsc, session))
-		return;
-
 	if (msg->front.iov_len < sizeof(*h)) {
 		pr_err("%s corrupt message mds%d len %d\n", __func__,
 		       session->s_mds, (int)msg->front.iov_len);
 		ceph_msg_dump(msg);
-		goto out;
+		return;
 	}
+
+	/* increment msg sequence number */
+	mutex_lock(&session->s_mutex);
+	inc_session_sequence(session);
+	mutex_unlock(&session->s_mutex);
 
 	/* lookup inode */
 	vino.ino = le64_to_cpu(h->ino);
@@ -63,7 +65,7 @@ void ceph_handle_quota(struct ceph_mds_client *mdsc,
 	inode = ceph_find_inode(sb, vino);
 	if (!inode) {
 		pr_warn("Failed to find inode %llu\n", vino.ino);
-		goto out;
+		return;
 	}
 	ci = ceph_inode(inode);
 
@@ -76,8 +78,6 @@ void ceph_handle_quota(struct ceph_mds_client *mdsc,
 	spin_unlock(&ci->i_ceph_lock);
 
 	iput(inode);
-out:
-	ceph_dec_mds_stopping_blocker(mdsc);
 }
 
 static struct ceph_quotarealm_inode *

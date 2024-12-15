@@ -1521,9 +1521,9 @@ static int amd8111e_change_mtu(struct net_device *dev, int new_mtu)
 
 	if (!netif_running(dev)) {
 		/* new_mtu will be used
-		 * when device starts next time
+		 * when device starts netxt time
 		 */
-		WRITE_ONCE(dev->mtu, new_mtu);
+		dev->mtu = new_mtu;
 		return 0;
 	}
 
@@ -1532,7 +1532,7 @@ static int amd8111e_change_mtu(struct net_device *dev, int new_mtu)
 	/* stop the chip */
 	writel(RUN, lp->mmio + CMD0);
 
-	WRITE_ONCE(dev->mtu, new_mtu);
+	dev->mtu = new_mtu;
 
 	err = amd8111e_restart(dev);
 	spin_unlock_irq(&lp->lock);

@@ -23,7 +23,8 @@
 #include <linux/dma-direct.h>
 
 #include "internal.h"
-#include "sleep.h"
+
+extern struct acpi_device *acpi_root;
 
 #define ACPI_BUS_CLASS			"system_bus"
 #define ACPI_BUS_HID			"LNXSYBUS"
@@ -289,10 +290,10 @@ static int acpi_scan_hot_remove(struct acpi_device *device)
 	return 0;
 }
 
-static int acpi_scan_device_not_enumerated(struct acpi_device *adev)
+static int acpi_scan_device_not_present(struct acpi_device *adev)
 {
 	if (!acpi_device_enumerated(adev)) {
-		dev_warn(&adev->dev, "Still not enumerated\n");
+		dev_warn(&adev->dev, "Still not present\n");
 		return -EALREADY;
 	}
 	acpi_bus_trim(adev);
@@ -304,7 +305,7 @@ static int acpi_scan_device_check(struct acpi_device *adev)
 	int error;
 
 	acpi_bus_get_status(adev);
-	if (acpi_device_is_present(adev)) {
+	if (adev->status.present || adev->status.functional) {
 		/*
 		 * This function is only called for device objects for which
 		 * matching scan handlers exist.  The only situation in which
@@ -327,7 +328,7 @@ static int acpi_scan_device_check(struct acpi_device *adev)
 			error = -ENODEV;
 		}
 	} else {
-		error = acpi_scan_device_not_enumerated(adev);
+		error = acpi_scan_device_not_present(adev);
 	}
 	return error;
 }
@@ -338,8 +339,8 @@ static int acpi_scan_bus_check(struct acpi_device *adev, void *not_used)
 	int error;
 
 	acpi_bus_get_status(adev);
-	if (!acpi_device_is_present(adev)) {
-		acpi_scan_device_not_enumerated(adev);
+	if (!(adev->status.present || adev->status.functional)) {
+		acpi_scan_device_not_present(adev);
 		return 0;
 	}
 	if (handler && handler->hotplug.scan_dependent)
@@ -808,9 +809,6 @@ static const char * const acpi_ignore_dep_ids[] = {
 /* List of HIDs for which we honor deps of matching ACPI devs, when checking _DEP lists. */
 static const char * const acpi_honor_dep_ids[] = {
 	"INT3472", /* Camera sensor PMIC / clk and regulator info */
-	"INTC1059", /* IVSC (TGL) driver must be loaded to allow i2c access to camera sensors */
-	"INTC1095", /* IVSC (ADL) driver must be loaded to allow i2c access to camera sensors */
-	"INTC100A", /* IVSC (RPL) driver must be loaded to allow i2c access to camera sensors */
 	NULL
 };
 
@@ -945,29 +943,26 @@ static int acpi_bus_extract_wakeup_device_power_package(struct acpi_device *dev)
 	return err;
 }
 
-/* Do not use a button for S5 wakeup */
-#define ACPI_AVOID_WAKE_FROM_S5		BIT(0)
-
 static bool acpi_wakeup_gpe_init(struct acpi_device *device)
 {
 	static const struct acpi_device_id button_device_ids[] = {
-		{"PNP0C0C", 0},				/* Power button */
-		{"PNP0C0D", ACPI_AVOID_WAKE_FROM_S5},	/* Lid */
-		{"PNP0C0E", ACPI_AVOID_WAKE_FROM_S5},	/* Sleep button */
+		{"PNP0C0C", 0},		/* Power button */
+		{"PNP0C0D", 0},		/* Lid */
+		{"PNP0C0E", 0},		/* Sleep button */
 		{"", 0},
 	};
 	struct acpi_device_wakeup *wakeup = &device->wakeup;
-	const struct acpi_device_id *match;
 	acpi_status status;
 
 	wakeup->flags.notifier_present = 0;
 
 	/* Power button, Lid switch always enable wakeup */
-	match = acpi_match_acpi_device(button_device_ids, device);
-	if (match) {
-		if ((match->driver_data & ACPI_AVOID_WAKE_FROM_S5) &&
-		    wakeup->sleep_state == ACPI_STATE_S5)
-			wakeup->sleep_state = ACPI_STATE_S4;
+	if (!acpi_match_device_ids(device, button_device_ids)) {
+		if (!acpi_match_device_ids(device, &button_device_ids[1])) {
+			/* Do not use Lid/sleep button for S5 wakeup */
+			if (wakeup->sleep_state == ACPI_STATE_S5)
+				wakeup->sleep_state = ACPI_STATE_S4;
+		}
 		acpi_mark_gpe_for_wake(wakeup->gpe_device, wakeup->gpe_number);
 		device_set_wakeup_capable(&device->dev, true);
 		return true;
@@ -1545,6 +1540,7 @@ int acpi_dma_get_range(struct device *dev, const struct bus_dma_region **map)
 			r->cpu_start = rentry->res->start;
 			r->dma_start = rentry->res->start - rentry->offset;
 			r->size = resource_size(rentry->res);
+			r->offset = rentry->offset;
 			r++;
 		}
 	}
@@ -1574,27 +1570,23 @@ static inline const struct iommu_ops *acpi_iommu_fwspec_ops(struct device *dev)
 	return fwspec ? fwspec->ops : NULL;
 }
 
-static int acpi_iommu_configure_id(struct device *dev, const u32 *id_in)
+static const struct iommu_ops *acpi_iommu_configure_id(struct device *dev,
+						       const u32 *id_in)
 {
 	int err;
 	const struct iommu_ops *ops;
 
-	/* Serialise to make dev->iommu stable under our potential fwspec */
-	mutex_lock(&iommu_probe_device_lock);
 	/*
 	 * If we already translated the fwspec there is nothing left to do,
 	 * return the iommu_ops.
 	 */
 	ops = acpi_iommu_fwspec_ops(dev);
-	if (ops) {
-		mutex_unlock(&iommu_probe_device_lock);
-		return 0;
-	}
+	if (ops)
+		return ops;
 
 	err = iort_iommu_configure_id(dev, id_in);
 	if (err && err != -EPROBE_DEFER)
 		err = viot_iommu_configure(dev);
-	mutex_unlock(&iommu_probe_device_lock);
 
 	/*
 	 * If we have reason to believe the IOMMU driver missed the initial
@@ -1605,14 +1597,12 @@ static int acpi_iommu_configure_id(struct device *dev, const u32 *id_in)
 
 	/* Ignore all other errors apart from EPROBE_DEFER */
 	if (err == -EPROBE_DEFER) {
-		return err;
+		return ERR_PTR(err);
 	} else if (err) {
 		dev_dbg(dev, "Adding to IOMMU failed: %d\n", err);
-		return -ENODEV;
+		return NULL;
 	}
-	if (!acpi_iommu_fwspec_ops(dev))
-		return -ENODEV;
-	return 0;
+	return acpi_iommu_fwspec_ops(dev);
 }
 
 #else /* !CONFIG_IOMMU_API */
@@ -1624,9 +1614,10 @@ int acpi_iommu_fwspec_init(struct device *dev, u32 id,
 	return -ENODEV;
 }
 
-static int acpi_iommu_configure_id(struct device *dev, const u32 *id_in)
+static const struct iommu_ops *acpi_iommu_configure_id(struct device *dev,
+						       const u32 *id_in)
 {
-	return -ENODEV;
+	return NULL;
 }
 
 #endif /* !CONFIG_IOMMU_API */
@@ -1640,7 +1631,7 @@ static int acpi_iommu_configure_id(struct device *dev, const u32 *id_in)
 int acpi_dma_configure_id(struct device *dev, enum dev_dma_attr attr,
 			  const u32 *input_id)
 {
-	int ret;
+	const struct iommu_ops *iommu;
 
 	if (attr == DEV_DMA_NOT_SUPPORTED) {
 		set_dma_ops(dev, &dma_dummy_ops);
@@ -1649,16 +1640,12 @@ int acpi_dma_configure_id(struct device *dev, enum dev_dma_attr attr,
 
 	acpi_arch_dma_setup(dev);
 
-	ret = acpi_iommu_configure_id(dev, input_id);
-	if (ret == -EPROBE_DEFER)
+	iommu = acpi_iommu_configure_id(dev, input_id);
+	if (PTR_ERR(iommu) == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 
-	/*
-	 * Historically this routine doesn't fail driver probing due to errors
-	 * in acpi_iommu_configure_id()
-	 */
-
-	arch_setup_dma_ops(dev, 0, U64_MAX, attr == DEV_DMA_COHERENT);
+	arch_setup_dma_ops(dev, 0, U64_MAX,
+				iommu, attr == DEV_DMA_COHERENT);
 
 	return 0;
 }
@@ -1738,9 +1725,6 @@ static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
 		{"BSG1160", },
 		{"BSG2150", },
 		{"CSC3551", },
-		{"CSC3554", },
-		{"CSC3556", },
-		{"CSC3557", },
 		{"INT33FE", },
 		{"INT3515", },
 		/* Non-conforming _HID for Cirrus Logic already released */
@@ -2006,6 +1990,7 @@ static void acpi_scan_init_hotplug(struct acpi_device *adev)
 static u32 acpi_scan_check_dep(acpi_handle handle, bool check_dep)
 {
 	struct acpi_handle_list dep_devices;
+	acpi_status status;
 	u32 count;
 	int i;
 
@@ -2019,7 +2004,8 @@ static u32 acpi_scan_check_dep(acpi_handle handle, bool check_dep)
 	    !acpi_has_method(handle, "_HID"))
 		return 0;
 
-	if (!acpi_evaluate_reference(handle, "_DEP", NULL, &dep_devices)) {
+	status = acpi_evaluate_reference(handle, "_DEP", NULL, &dep_devices);
+	if (ACPI_FAILURE(status)) {
 		acpi_handle_debug(handle, "Failed to evaluate _DEP.\n");
 		return 0;
 	}
@@ -2028,7 +2014,6 @@ static u32 acpi_scan_check_dep(acpi_handle handle, bool check_dep)
 		struct acpi_device_info *info;
 		struct acpi_dep_data *dep;
 		bool skip, honor_dep;
-		acpi_status status;
 
 		status = acpi_get_object_info(dep_devices.handles[i], &info);
 		if (ACPI_FAILURE(status)) {
@@ -2058,9 +2043,10 @@ static u32 acpi_scan_check_dep(acpi_handle handle, bool check_dep)
 		mutex_unlock(&acpi_dep_list_lock);
 	}
 
-	acpi_handle_list_free(&dep_devices);
 	return count;
 }
+
+static bool acpi_bus_scan_second_pass;
 
 static acpi_status acpi_bus_check_add(acpi_handle handle, bool check_dep,
 				      struct acpi_device **adev_p)
@@ -2081,8 +2067,10 @@ static acpi_status acpi_bus_check_add(acpi_handle handle, bool check_dep,
 			return AE_OK;
 
 		/* Bail out if there are dependencies. */
-		if (acpi_scan_check_dep(handle, check_dep) > 0)
+		if (acpi_scan_check_dep(handle, check_dep) > 0) {
+			acpi_bus_scan_second_pass = true;
 			return AE_CTRL_DEPTH;
+		}
 
 		fallthrough;
 	case ACPI_TYPE_ANY:	/* for ACPI_ROOT_OBJECT */
@@ -2330,12 +2318,6 @@ static bool acpi_scan_clear_dep_queue(struct acpi_device *adev)
 	return true;
 }
 
-static void acpi_scan_delete_dep_data(struct acpi_dep_data *dep)
-{
-	list_del(&dep->node);
-	kfree(dep);
-}
-
 static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
 {
 	struct acpi_device *adev = acpi_get_acpi_dev(dep->consumer);
@@ -2346,10 +2328,8 @@ static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
 			acpi_dev_put(adev);
 	}
 
-	if (dep->free_when_met)
-		acpi_scan_delete_dep_data(dep);
-	else
-		dep->met = true;
+	list_del(&dep->node);
+	kfree(dep);
 
 	return 0;
 }
@@ -2443,55 +2423,6 @@ struct acpi_device *acpi_dev_get_next_consumer_dev(struct acpi_device *supplier,
 }
 EXPORT_SYMBOL_GPL(acpi_dev_get_next_consumer_dev);
 
-static void acpi_scan_postponed_branch(acpi_handle handle)
-{
-	struct acpi_device *adev = NULL;
-
-	if (ACPI_FAILURE(acpi_bus_check_add(handle, false, &adev)))
-		return;
-
-	acpi_walk_namespace(ACPI_TYPE_ANY, handle, ACPI_UINT32_MAX,
-			    acpi_bus_check_add_2, NULL, NULL, (void **)&adev);
-	acpi_bus_attach(adev, NULL);
-}
-
-static void acpi_scan_postponed(void)
-{
-	struct acpi_dep_data *dep, *tmp;
-
-	mutex_lock(&acpi_dep_list_lock);
-
-	list_for_each_entry_safe(dep, tmp, &acpi_dep_list, node) {
-		acpi_handle handle = dep->consumer;
-
-		/*
-		 * In case there are multiple acpi_dep_list entries with the
-		 * same consumer, skip the current entry if the consumer device
-		 * object corresponding to it is present already.
-		 */
-		if (!acpi_fetch_acpi_dev(handle)) {
-			/*
-			 * Even though the lock is released here, tmp is
-			 * guaranteed to be valid, because none of the list
-			 * entries following dep is marked as "free when met"
-			 * and so they cannot be deleted.
-			 */
-			mutex_unlock(&acpi_dep_list_lock);
-
-			acpi_scan_postponed_branch(handle);
-
-			mutex_lock(&acpi_dep_list_lock);
-		}
-
-		if (dep->met)
-			acpi_scan_delete_dep_data(dep);
-		else
-			dep->free_when_met = true;
-	}
-
-	mutex_unlock(&acpi_dep_list_lock);
-}
-
 /**
  * acpi_bus_scan - Add ACPI device node objects in a given namespace scope.
  * @handle: Root of the namespace scope to scan.
@@ -2510,6 +2441,8 @@ int acpi_bus_scan(acpi_handle handle)
 {
 	struct acpi_device *device = NULL;
 
+	acpi_bus_scan_second_pass = false;
+
 	/* Pass 1: Avoid enumerating devices with missing dependencies. */
 
 	if (ACPI_SUCCESS(acpi_bus_check_add(handle, true, &device)))
@@ -2522,9 +2455,19 @@ int acpi_bus_scan(acpi_handle handle)
 
 	acpi_bus_attach(device, (void *)true);
 
+	if (!acpi_bus_scan_second_pass)
+		return 0;
+
 	/* Pass 2: Enumerate all of the remaining devices. */
 
-	acpi_scan_postponed();
+	device = NULL;
+
+	if (ACPI_SUCCESS(acpi_bus_check_add(handle, false, &device)))
+		acpi_walk_namespace(ACPI_TYPE_ANY, handle, ACPI_UINT32_MAX,
+				    acpi_bus_check_add_2, NULL, NULL,
+				    (void **)&device);
+
+	acpi_bus_attach(device, NULL);
 
 	return 0;
 }
@@ -2646,6 +2589,7 @@ void __init acpi_scan_init(void)
 	acpi_watchdog_init();
 	acpi_pnp_init();
 	acpi_int340x_thermal_init();
+	acpi_amba_init();
 	acpi_init_lpit();
 
 	acpi_scan_add_handler(&generic_device_handler);

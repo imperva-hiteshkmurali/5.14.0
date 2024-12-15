@@ -171,8 +171,10 @@ unsigned int cpumask_any_and_distribute(const struct cpumask *src1p,
 	/* NOTE: our first selection will skip 0. */
 	prev = __this_cpu_read(distribute_cpu_mask_prev);
 
-	next = find_next_and_bit_wrap(cpumask_bits(src1p), cpumask_bits(src2p),
-					nr_cpumask_bits, prev + 1);
+	next = cpumask_next_and(prev, src1p, src2p);
+	if (next >= nr_cpu_ids)
+		next = cpumask_first_and(src1p, src2p);
+
 	if (next < nr_cpu_ids)
 		__this_cpu_write(distribute_cpu_mask_prev, next);
 
@@ -186,7 +188,11 @@ unsigned int cpumask_any_distribute(const struct cpumask *srcp)
 
 	/* NOTE: our first selection will skip 0. */
 	prev = __this_cpu_read(distribute_cpu_mask_prev);
-	next = find_next_bit_wrap(cpumask_bits(srcp), nr_cpumask_bits, prev + 1);
+
+	next = cpumask_next(prev, srcp);
+	if (next >= nr_cpu_ids)
+		next = cpumask_first(srcp);
+
 	if (next < nr_cpu_ids)
 		__this_cpu_write(distribute_cpu_mask_prev, next);
 

@@ -21,12 +21,11 @@ enum nfs4_callback_procnum {
 
 struct nfs4_slot;
 struct cb_process_state {
+	__be32			drc_status;
 	struct nfs_client	*clp;
 	struct nfs4_slot	*slot;
-	struct net		*net;
 	u32			minorversion;
-	__be32			drc_status;
-	unsigned int		referring_calls;
+	struct net		*net;
 };
 
 struct cb_compound_hdr_arg {

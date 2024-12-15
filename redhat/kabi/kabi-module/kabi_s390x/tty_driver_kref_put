@@ -1,3 +1,2 @@
-#5-
-0x169e66a1	tty_driver_kref_put	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x5c398a97	tty_driver_kref_put	vmlinux	EXPORT_SYMBOL	

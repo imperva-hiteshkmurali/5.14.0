@@ -1,3 +1,2 @@
-#5-
-0x829b18e9	kthread_create_on_node	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf6c72953	kthread_create_on_node	vmlinux	EXPORT_SYMBOL	

@@ -617,7 +617,7 @@ setup_arch (char **cmdline_p)
 		 * memory so we can avoid this problem.
 		 */
 		if (efi_mem_type(0xA0000) != EFI_CONVENTIONAL_MEMORY)
-			vgacon_register_screen(&screen_info);
+			conswitchp = &vga_con;
 # endif
 	}
 #endif

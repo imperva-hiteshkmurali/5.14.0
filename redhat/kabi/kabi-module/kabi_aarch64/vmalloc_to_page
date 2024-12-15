@@ -1,3 +1,2 @@
-#5-
-0x02b5dd33	vmalloc_to_page	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x67f79fcf	vmalloc_to_page	vmlinux	EXPORT_SYMBOL	

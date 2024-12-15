@@ -21,8 +21,7 @@ protection_keys
 protection_keys_32
 protection_keys_64
 madv_populate
-uffd-stress
-uffd-unit-tests
+userfaultfd
 mlock-intersect-test
 mlock-random-test
 virtual_address_range
@@ -42,4 +41,3 @@ mdwe_test
 mkdirty
 va_high_addr_switch
 hugetlb_fault_after_madv
-hugetlb_madv_vs_map

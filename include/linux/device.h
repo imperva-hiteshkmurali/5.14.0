@@ -42,6 +42,7 @@ struct class;
 struct subsys_private;
 struct device_node;
 struct fwnode_handle;
+struct iommu_ops;
 struct iommu_group;
 struct dev_pin_info;
 struct dev_iommu;
@@ -62,7 +63,7 @@ struct msi_device_data;
  */
 struct subsys_interface {
 	const char *name;
-	const struct bus_type *subsys;
+	struct bus_type *subsys;
 	struct list_head node;
 	int (*add_dev)(struct device *dev, struct subsys_interface *sif);
 	void (*remove_dev)(struct device *dev, struct subsys_interface *sif);
@@ -71,9 +72,9 @@ struct subsys_interface {
 int subsys_interface_register(struct subsys_interface *sif);
 void subsys_interface_unregister(struct subsys_interface *sif);
 
-int subsys_system_register(const struct bus_type *subsys,
+int subsys_system_register(struct bus_type *subsys,
 			   const struct attribute_group **groups);
-int subsys_virtual_register(const struct bus_type *subsys,
+int subsys_virtual_register(struct bus_type *subsys,
 			    const struct attribute_group **groups);
 
 /*
@@ -223,17 +224,6 @@ static inline void *devm_kcalloc(struct device *dev,
 {
 	return devm_kmalloc_array(dev, n, size, flags | __GFP_ZERO);
 }
-static inline __realloc_size(3, 4) void * __must_check
-devm_krealloc_array(struct device *dev, void *p, size_t new_n, size_t new_size, gfp_t flags)
-{
-	size_t bytes;
-
-	if (unlikely(check_mul_overflow(new_n, new_size, &bytes)))
-		return NULL;
-
-	return devm_krealloc(dev, p, bytes, flags);
-}
-
 void devm_kfree(struct device *dev, const void *p);
 char *devm_kstrdup(struct device *dev, const char *s, gfp_t gfp) __malloc;
 const char *devm_kstrdup_const(struct device *dev, const char *s, gfp_t gfp);
@@ -517,10 +507,7 @@ struct dev_msi_info {
  * @dma_pools:	Dma pools (if dma'ble device).
  * @dma_mem:	Internal for coherent mem override.
  * @cma_area:	Contiguous memory area for dma allocations
- * @dma_io_tlb_mem: Software IO TLB allocator.  Not for driver use.
- * @dma_io_tlb_pools:	List of transient swiotlb memory pools.
- * @dma_io_tlb_lock:	Protects changes to the list of active pools.
- * @dma_uses_io_tlb: %true if device has used the software IO TLB.
+ * @dma_io_tlb_mem: Pointer to the swiotlb pool used.  Not for driver use.
  * @archdata:	For arch-specific additions.
  * @of_node:	Associated device tree node.
  * @fwnode:	Associated device node supplied by platform firmware.
@@ -559,7 +546,6 @@ struct dev_msi_info {
  *		and optionall (if the coherent mask is large enough) also
  *		for dma allocations.  This flag is managed by the dma ops
  *		instance from ->dma_supported.
- * @dma_skip_sync: DMA sync operations can be skipped for coherent buffers.
  *
  * At the lowest level, every device in a Linux system is represented by an
  * instance of struct device. The device structure contains the information
@@ -578,7 +564,7 @@ struct device {
 	const char		*init_name; /* initial name of the device */
 	const struct device_type *type;
 
-	const struct bus_type	*bus;	/* type of bus device is on */
+	struct bus_type	*bus;		/* type of bus device is on */
 	struct device_driver *driver;	/* which driver has allocated this
 					   device */
 	void		*platform_data;	/* Platform specific data, device
@@ -628,11 +614,6 @@ struct device {
 #ifdef CONFIG_SWIOTLB
 	struct io_tlb_mem *dma_io_tlb_mem;
 #endif
-#ifdef CONFIG_SWIOTLB_DYNAMIC
-	struct list_head dma_io_tlb_pools;
-	spinlock_t dma_io_tlb_lock;
-	bool dma_uses_io_tlb;
-#endif
 	/* arch specific additions */
 	struct dev_archdata	archdata;
 
@@ -671,9 +652,6 @@ struct device {
 #endif
 #ifdef CONFIG_DMA_OPS_BYPASS
 	bool			dma_ops_bypass : 1;
-#endif
-#ifdef CONFIG_DMA_NEED_SYNC
-	bool			dma_skip_sync:1;
 #endif
 };
 
@@ -871,8 +849,6 @@ static inline void device_unlock(struct device *dev)
 {
 	mutex_unlock(&dev->mutex);
 }
-
-DEFINE_GUARD(device, struct device *, device_lock(_T), device_unlock(_T))
 
 static inline void device_lock_assert(struct device *dev)
 {

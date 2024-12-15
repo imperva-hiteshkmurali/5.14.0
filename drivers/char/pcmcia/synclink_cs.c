@@ -377,8 +377,8 @@ static void async_mode(MGSLPC_INFO *info);
 
 static void tx_timeout(struct timer_list *t);
 
-static bool carrier_raised(struct tty_port *port);
-static void dtr_rts(struct tty_port *port, bool active);
+static int carrier_raised(struct tty_port *port);
+static void dtr_rts(struct tty_port *port, int onoff);
 
 #if SYNCLINK_GENERIC_HDLC
 #define dev_to_port(D) (dev_to_hdlc(D)->priv)
@@ -1060,7 +1060,7 @@ static void cts_change(MGSLPC_INFO *info, struct tty_struct *tty)
 			if (info->serial_signals & SerialSignal_CTS) {
 				if (debug_level >= DEBUG_LEVEL_ISR)
 					printk("CTS tx start...");
-				tty->hw_stopped = false;
+				tty->hw_stopped = 0;
 				tx_start(info, tty);
 				info->pending_bh |= BH_TRANSMIT;
 				return;
@@ -1069,7 +1069,7 @@ static void cts_change(MGSLPC_INFO *info, struct tty_struct *tty)
 			if (!(info->serial_signals & SerialSignal_CTS)) {
 				if (debug_level >= DEBUG_LEVEL_ISR)
 					printk("CTS tx stop...");
-				tty->hw_stopped = true;
+				tty->hw_stopped = 1;
 				tx_stop(info);
 			}
 		}
@@ -1309,7 +1309,7 @@ static int startup(MGSLPC_INFO * info, struct tty_struct *tty)
 	if (tty)
 		clear_bit(TTY_IO_ERROR, &tty->flags);
 
-	tty_port_set_initialized(&info->port, true);
+	tty_port_set_initialized(&info->port, 1);
 
 	return 0;
 }
@@ -1359,7 +1359,7 @@ static void shutdown(MGSLPC_INFO * info, struct tty_struct *tty)
 	if (tty)
 		set_bit(TTY_IO_ERROR, &tty->flags);
 
-	tty_port_set_initialized(&info->port, false);
+	tty_port_set_initialized(&info->port, 0);
 }
 
 static void mgslpc_program_hw(MGSLPC_INFO *info, struct tty_struct *tty)
@@ -1418,11 +1418,7 @@ static void mgslpc_change_params(MGSLPC_INFO *info, struct tty_struct *tty)
 		info->serial_signals &= ~(SerialSignal_RTS | SerialSignal_DTR);
 
 	/* byte size and parity */
-	if ((cflag & CSIZE) != CS8) {
-		cflag &= ~CSIZE;
-		cflag |= CS7;
-		tty->termios.c_cflag = cflag;
-	}
+
 	info->params.data_bits = tty_get_char_size(cflag);
 
 	if (cflag & CSTOPB)
@@ -2274,8 +2270,7 @@ static int mgslpc_ioctl(struct tty_struct *tty,
  *	tty		pointer to tty structure
  *	termios		pointer to buffer to hold returned old termios
  */
-static void mgslpc_set_termios(struct tty_struct *tty,
-			       const struct ktermios *old_termios)
+static void mgslpc_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 {
 	MGSLPC_INFO *info = (MGSLPC_INFO *)tty->driver_data;
 	unsigned long flags;
@@ -2312,7 +2307,7 @@ static void mgslpc_set_termios(struct tty_struct *tty,
 
 	/* Handle turning off CRTSCTS */
 	if (old_termios->c_cflag & CRTSCTS && !C_CRTSCTS(tty)) {
-		tty->hw_stopped = false;
+		tty->hw_stopped = 0;
 		tx_release(tty);
 	}
 }
@@ -2430,7 +2425,7 @@ static void mgslpc_hangup(struct tty_struct *tty)
 	tty_port_hangup(&info->port);
 }
 
-static bool carrier_raised(struct tty_port *port)
+static int carrier_raised(struct tty_port *port)
 {
 	MGSLPC_INFO *info = container_of(port, MGSLPC_INFO, port);
 	unsigned long flags;
@@ -2439,16 +2434,18 @@ static bool carrier_raised(struct tty_port *port)
 	get_signals(info);
 	spin_unlock_irqrestore(&info->lock, flags);
 
-	return info->serial_signals & SerialSignal_DCD;
+	if (info->serial_signals & SerialSignal_DCD)
+		return 1;
+	return 0;
 }
 
-static void dtr_rts(struct tty_port *port, bool active)
+static void dtr_rts(struct tty_port *port, int onoff)
 {
 	MGSLPC_INFO *info = container_of(port, MGSLPC_INFO, port);
 	unsigned long flags;
 
 	spin_lock_irqsave(&info->lock, flags);
-	if (active)
+	if (onoff)
 		info->serial_signals |= SerialSignal_RTS | SerialSignal_DTR;
 	else
 		info->serial_signals &= ~(SerialSignal_RTS | SerialSignal_DTR);
@@ -2842,7 +2839,7 @@ static int __init synclink_cs_init(void)
 err_unreg_tty:
 	tty_unregister_driver(serial_driver);
 err_put_tty:
-	tty_driver_kref_put(serial_driver);
+	put_tty_driver(serial_driver);
 err:
 	return rc;
 }
@@ -2851,7 +2848,7 @@ static void __exit synclink_cs_exit(void)
 {
 	pcmcia_unregister_driver(&mgslpc_driver);
 	tty_unregister_driver(serial_driver);
-	tty_driver_kref_put(serial_driver);
+	put_tty_driver(serial_driver);
 }
 
 module_init(synclink_cs_init);

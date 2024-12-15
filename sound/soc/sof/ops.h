@@ -51,16 +51,20 @@ static inline int snd_sof_probe(struct snd_sof_dev *sdev)
 	return sof_ops(sdev)->probe(sdev);
 }
 
-static inline void snd_sof_remove(struct snd_sof_dev *sdev)
+static inline int snd_sof_remove(struct snd_sof_dev *sdev)
 {
 	if (sof_ops(sdev)->remove)
-		sof_ops(sdev)->remove(sdev);
+		return sof_ops(sdev)->remove(sdev);
+
+	return 0;
 }
 
-static inline void snd_sof_remove_late(struct snd_sof_dev *sdev)
+static inline int snd_sof_remove_late(struct snd_sof_dev *sdev)
 {
 	if (sof_ops(sdev)->remove_late)
-		sof_ops(sdev)->remove_late(sdev);
+		return sof_ops(sdev)->remove_late(sdev);
+
+	return 0;
 }
 
 static inline int snd_sof_shutdown(struct snd_sof_dev *sdev)
@@ -214,7 +218,7 @@ static inline int snd_sof_dsp_get_mailbox_offset(struct snd_sof_dev *sdev)
 		return sof_ops(sdev)->get_mailbox_offset(sdev);
 
 	dev_err(sdev->dev, "error: %s not defined\n", __func__);
-	return -EOPNOTSUPP;
+	return -ENOTSUPP;
 }
 
 static inline int snd_sof_dsp_get_window_offset(struct snd_sof_dev *sdev,
@@ -224,7 +228,7 @@ static inline int snd_sof_dsp_get_window_offset(struct snd_sof_dev *sdev,
 		return sof_ops(sdev)->get_window_offset(sdev, id);
 
 	dev_err(sdev->dev, "error: %s not defined\n", __func__);
-	return -EOPNOTSUPP;
+	return -ENOTSUPP;
 }
 /* power management */
 static inline int snd_sof_dsp_resume(struct snd_sof_dev *sdev)
@@ -523,26 +527,12 @@ static inline int snd_sof_pcm_platform_ack(struct snd_sof_dev *sdev,
 	return 0;
 }
 
-static inline u64
-snd_sof_pcm_get_dai_frame_counter(struct snd_sof_dev *sdev,
-				  struct snd_soc_component *component,
-				  struct snd_pcm_substream *substream)
+static inline u64 snd_sof_pcm_get_stream_position(struct snd_sof_dev *sdev,
+						  struct snd_soc_component *component,
+						  struct snd_pcm_substream *substream)
 {
-	if (sof_ops(sdev) && sof_ops(sdev)->get_dai_frame_counter)
-		return sof_ops(sdev)->get_dai_frame_counter(sdev, component,
-							    substream);
-
-	return 0;
-}
-
-static inline u64
-snd_sof_pcm_get_host_byte_counter(struct snd_sof_dev *sdev,
-				  struct snd_soc_component *component,
-				  struct snd_pcm_substream *substream)
-{
-	if (sof_ops(sdev) && sof_ops(sdev)->get_host_byte_counter)
-		return sof_ops(sdev)->get_host_byte_counter(sdev, component,
-							    substream);
+	if (sof_ops(sdev) && sof_ops(sdev)->get_stream_position)
+		return sof_ops(sdev)->get_stream_position(sdev, component, substream);
 
 	return 0;
 }
@@ -579,15 +569,6 @@ snd_sof_set_mach_params(struct snd_soc_acpi_mach *mach,
 {
 	if (sof_ops(sdev) && sof_ops(sdev)->set_mach_params)
 		sof_ops(sdev)->set_mach_params(mach, sdev);
-}
-
-static inline bool
-snd_sof_is_chain_dma_supported(struct snd_sof_dev *sdev, u32 dai_type)
-{
-	if (sof_ops(sdev) && sof_ops(sdev)->is_chain_dma_supported)
-		return sof_ops(sdev)->is_chain_dma_supported(sdev, dai_type);
-
-	return false;
 }
 
 /**

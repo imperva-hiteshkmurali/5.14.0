@@ -50,20 +50,18 @@ drm_connector_to_tfp410(struct drm_connector *connector)
 static int tfp410_get_modes(struct drm_connector *connector)
 {
 	struct tfp410 *dvi = drm_connector_to_tfp410(connector);
-	const struct drm_edid *drm_edid;
+	struct edid *edid;
 	int ret;
 
 	if (dvi->next_bridge->ops & DRM_BRIDGE_OP_EDID) {
-		drm_edid = drm_bridge_edid_read(dvi->next_bridge, connector);
-		if (!drm_edid)
+		edid = drm_bridge_get_edid(dvi->next_bridge, connector);
+		if (!edid)
 			DRM_INFO("EDID read failed. Fallback to standard modes\n");
 	} else {
-		drm_edid = NULL;
+		edid = NULL;
 	}
 
-	drm_edid_connector_update(connector, drm_edid);
-
-	if (!drm_edid) {
+	if (!edid) {
 		/*
 		 * No EDID, fallback on the XGA standard modes and prefer a mode
 		 * pretty much anything can handle.
@@ -73,9 +71,11 @@ static int tfp410_get_modes(struct drm_connector *connector)
 		return ret;
 	}
 
-	ret = drm_edid_connector_add_modes(connector);
+	drm_connector_update_edid_property(connector, edid);
 
-	drm_edid_free(drm_edid);
+	ret = drm_add_edid_modes(connector, edid);
+
+	kfree(edid);
 
 	return ret;
 }
@@ -434,11 +434,9 @@ static int tfp410_i2c_probe(struct i2c_client *client)
 	return tfp410_init(&client->dev, true);
 }
 
-static int tfp410_i2c_remove(struct i2c_client *client)
+static void tfp410_i2c_remove(struct i2c_client *client)
 {
 	tfp410_fini(&client->dev);
-
-	return 0;
 }
 
 static const struct i2c_device_id tfp410_i2c_ids[] = {

@@ -1,3 +1,2 @@
-#5-
-0xf5e19fcf	netdev_rx_handler_register	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0x89384aa2	netdev_rx_handler_register	vmlinux	EXPORT_SYMBOL_GPL	

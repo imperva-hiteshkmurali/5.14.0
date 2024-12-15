@@ -1,3 +1,2 @@
-#5-
-0x01b96050	skb_checksum_help	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xede81426	skb_checksum_help	vmlinux	EXPORT_SYMBOL	

@@ -1,3 +1,2 @@
-#5-
-0xbf75f1f1	netif_set_tso_max_size	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x93c3662e	netif_set_tso_max_size	vmlinux	EXPORT_SYMBOL	

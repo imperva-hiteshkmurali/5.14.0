@@ -23,7 +23,6 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/errno.h>
@@ -37,7 +36,9 @@
 #include <linux/dmapool.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
-#include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/of_irq.h>
+#include <linux/of_address.h>
 
 #include <asm/byteorder.h>
 

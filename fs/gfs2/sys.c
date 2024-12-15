@@ -168,10 +168,10 @@ static ssize_t freeze_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 
 	switch (n) {
 	case 0:
-		error = thaw_super(sdp->sd_vfs, FREEZE_HOLDER_USERSPACE);
+		error = thaw_super(sdp->sd_vfs);
 		break;
 	case 1:
-		error = freeze_super(sdp->sd_vfs, FREEZE_HOLDER_USERSPACE);
+		error = freeze_super(sdp->sd_vfs);
 		break;
 	default:
 		return -EINVAL;

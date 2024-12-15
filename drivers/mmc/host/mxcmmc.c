@@ -31,6 +31,7 @@
 #include <linux/dmaengine.h>
 #include <linux/types.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/of_dma.h>
 #include <linux/mmc/slot-gpio.h>
 
@@ -922,7 +923,7 @@ static void mxcmci_init_card(struct mmc_host *host, struct mmc_card *card)
 	 * One way to prevent this is to only allow 1-bit transfers.
 	 */
 
-	if (is_imx31_mmc(mxcmci) && mmc_card_sdio(card))
+	if (is_imx31_mmc(mxcmci) && card->type == MMC_TYPE_SDIO)
 		host->caps &= ~MMC_CAP_4_BIT_DATA;
 	else
 		host->caps |= MMC_CAP_4_BIT_DATA;
@@ -988,6 +989,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 
 	pr_info("i.MX/MPC512x SDHC driver\n");
 
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
@@ -998,7 +1000,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 
 	host = mmc_priv(mmc);
 
-	host->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
+	host->base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(host->base)) {
 		ret = PTR_ERR(host->base);
 		goto out_free;
@@ -1023,7 +1025,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 	mmc->max_req_size = mmc->max_blk_size * mmc->max_blk_count;
 	mmc->max_seg_size = mmc->max_req_size;
 
-	host->devtype = (uintptr_t)of_device_get_match_data(&pdev->dev);
+	host->devtype = (enum mxcmci_type)of_device_get_match_data(&pdev->dev);
 
 	/* adjust max_segs after devtype detection */
 	if (!is_mpc512x_mmc(host))
@@ -1141,9 +1143,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 
 	timer_setup(&host->watchdog, mxcmci_watchdog, 0);
 
-	ret = mmc_add_host(mmc);
-	if (ret)
-		goto out_free_dma;
+	mmc_add_host(mmc);
 
 	return 0;
 
@@ -1162,7 +1162,7 @@ out_free:
 	return ret;
 }
 
-static void mxcmci_remove(struct platform_device *pdev)
+static int mxcmci_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = platform_get_drvdata(pdev);
 	struct mxcmci_host *host = mmc_priv(mmc);
@@ -1179,8 +1179,11 @@ static void mxcmci_remove(struct platform_device *pdev)
 	clk_disable_unprepare(host->clk_ipg);
 
 	mmc_free_host(mmc);
+
+	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int mxcmci_suspend(struct device *dev)
 {
 	struct mmc_host *mmc = dev_get_drvdata(dev);
@@ -1207,16 +1210,17 @@ static int mxcmci_resume(struct device *dev)
 
 	return ret;
 }
+#endif
 
-DEFINE_SIMPLE_DEV_PM_OPS(mxcmci_pm_ops, mxcmci_suspend, mxcmci_resume);
+static SIMPLE_DEV_PM_OPS(mxcmci_pm_ops, mxcmci_suspend, mxcmci_resume);
 
 static struct platform_driver mxcmci_driver = {
 	.probe		= mxcmci_probe,
-	.remove_new	= mxcmci_remove,
+	.remove		= mxcmci_remove,
 	.driver		= {
 		.name		= DRIVER_NAME,
 		.probe_type	= PROBE_PREFER_ASYNCHRONOUS,
-		.pm	= pm_sleep_ptr(&mxcmci_pm_ops),
+		.pm	= &mxcmci_pm_ops,
 		.of_match_table	= mxcmci_of_match,
 	}
 };

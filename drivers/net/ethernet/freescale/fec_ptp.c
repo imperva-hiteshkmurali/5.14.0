@@ -268,21 +268,18 @@ void fec_ptp_start_cyclecounter(struct net_device *ndev)
 }
 
 /**
- * fec_ptp_adjfine - adjust ptp cycle frequency
+ * fec_ptp_adjfreq - adjust ptp cycle frequency
  * @ptp: the ptp clock structure
- * @scaled_ppm: scaled parts per million adjustment from base
+ * @ppb: parts per billion adjustment from base
  *
  * Adjust the frequency of the ptp cycle counter by the
- * indicated amount from the base frequency.
- *
- * Scaled parts per million is ppm with a 16-bit binary fractional field.
+ * indicated ppb from the base frequency.
  *
  * Because ENET hardware frequency adjust is complex,
  * using software method to do that.
  */
-static int fec_ptp_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
+static int fec_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 {
-	s32 ppb = scaled_ppm_to_ppb(scaled_ppm);
 	unsigned long flags;
 	int neg_adj = 0;
 	u32 i, tmp;
@@ -455,12 +452,28 @@ static int fec_ptp_enable(struct ptp_clock_info *ptp,
 	return -EOPNOTSUPP;
 }
 
-int fec_ptp_set(struct net_device *ndev, struct kernel_hwtstamp_config *config,
-		struct netlink_ext_ack *extack)
+/**
+ * fec_ptp_disable_hwts - disable hardware time stamping
+ * @ndev: pointer to net_device
+ */
+void fec_ptp_disable_hwts(struct net_device *ndev)
 {
 	struct fec_enet_private *fep = netdev_priv(ndev);
 
-	switch (config->tx_type) {
+	fep->hwts_tx_en = 0;
+	fep->hwts_rx_en = 0;
+}
+
+int fec_ptp_set(struct net_device *ndev, struct ifreq *ifr)
+{
+	struct fec_enet_private *fep = netdev_priv(ndev);
+
+	struct hwtstamp_config config;
+
+	if (copy_from_user(&config, ifr->ifr_data, sizeof(config)))
+		return -EFAULT;
+
+	switch (config.tx_type) {
 	case HWTSTAMP_TX_OFF:
 		fep->hwts_tx_en = 0;
 		break;
@@ -471,28 +484,33 @@ int fec_ptp_set(struct net_device *ndev, struct kernel_hwtstamp_config *config,
 		return -ERANGE;
 	}
 
-	switch (config->rx_filter) {
+	switch (config.rx_filter) {
 	case HWTSTAMP_FILTER_NONE:
 		fep->hwts_rx_en = 0;
 		break;
 
 	default:
 		fep->hwts_rx_en = 1;
-		config->rx_filter = HWTSTAMP_FILTER_ALL;
+		config.rx_filter = HWTSTAMP_FILTER_ALL;
 		break;
 	}
 
-	return 0;
+	return copy_to_user(ifr->ifr_data, &config, sizeof(config)) ?
+	    -EFAULT : 0;
 }
 
-void fec_ptp_get(struct net_device *ndev, struct kernel_hwtstamp_config *config)
+int fec_ptp_get(struct net_device *ndev, struct ifreq *ifr)
 {
 	struct fec_enet_private *fep = netdev_priv(ndev);
+	struct hwtstamp_config config;
 
-	config->flags = 0;
-	config->tx_type = fep->hwts_tx_en ? HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF;
-	config->rx_filter = (fep->hwts_rx_en ?
-			     HWTSTAMP_FILTER_ALL : HWTSTAMP_FILTER_NONE);
+	config.flags = 0;
+	config.tx_type = fep->hwts_tx_en ? HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF;
+	config.rx_filter = (fep->hwts_rx_en ?
+			    HWTSTAMP_FILTER_ALL : HWTSTAMP_FILTER_NONE);
+
+	return copy_to_user(ifr->ifr_data, &config, sizeof(config)) ?
+		-EFAULT : 0;
 }
 
 /*
@@ -573,7 +591,7 @@ void fec_ptp_init(struct platform_device *pdev, int irq_idx)
 	fep->ptp_caps.n_per_out = 0;
 	fep->ptp_caps.n_pins = 0;
 	fep->ptp_caps.pps = 1;
-	fep->ptp_caps.adjfine = fec_ptp_adjfine;
+	fep->ptp_caps.adjfreq = fec_ptp_adjfreq;
 	fep->ptp_caps.adjtime = fec_ptp_adjtime;
 	fep->ptp_caps.gettime64 = fec_ptp_gettime;
 	fep->ptp_caps.settime64 = fec_ptp_settime;

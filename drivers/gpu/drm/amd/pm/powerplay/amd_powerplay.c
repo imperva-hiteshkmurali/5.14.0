@@ -1022,9 +1022,6 @@ static int pp_get_power_limit(void *handle, uint32_t *limit,
 				*limit /= 100;
 			}
 			break;
-		case PP_PWR_LIMIT_MIN:
-			*limit = 0;
-			break;
 		default:
 			ret = -EOPNOTSUPP;
 			break;
@@ -1371,18 +1368,21 @@ static int pp_set_active_display_count(void *handle, uint32_t count)
 	return phm_set_active_display_count(hwmgr, count);
 }
 
-static bool pp_get_asic_baco_capability(void *handle)
+static int pp_get_asic_baco_capability(void *handle, bool *cap)
 {
 	struct pp_hwmgr *hwmgr = handle;
 
+	*cap = false;
 	if (!hwmgr)
-		return false;
+		return -EINVAL;
 
 	if (!(hwmgr->not_vf && amdgpu_dpm) ||
 		!hwmgr->hwmgr_func->get_asic_baco_capability)
-		return false;
+		return 0;
 
-	return hwmgr->hwmgr_func->get_asic_baco_capability(hwmgr);
+	hwmgr->hwmgr_func->get_asic_baco_capability(hwmgr, cap);
+
+	return 0;
 }
 
 static int pp_get_asic_baco_state(void *handle, int *state)

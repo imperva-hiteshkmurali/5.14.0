@@ -564,7 +564,7 @@ static int vaddr_get_pfns(struct mm_struct *mm, unsigned long vaddr,
 
 	mmap_read_lock(mm);
 	ret = pin_user_pages_remote(mm, vaddr, npages, flags | FOLL_LONGTERM,
-				    pages, NULL);
+				    pages, NULL, NULL);
 	if (ret > 0) {
 		int i;
 
@@ -1435,7 +1435,7 @@ static int vfio_iommu_map(struct vfio_iommu *iommu, dma_addr_t iova,
 	list_for_each_entry(d, &iommu->domain_list, next) {
 		ret = iommu_map(d->domain, iova, (phys_addr_t)pfn << PAGE_SHIFT,
 				npage << PAGE_SHIFT, prot | IOMMU_CACHE,
-				GFP_KERNEL_ACCOUNT);
+				GFP_KERNEL);
 		if (ret)
 			goto unwind;
 
@@ -1675,7 +1675,7 @@ out_unlock:
 
 static int vfio_bus_type(struct device *dev, void *data)
 {
-	const struct bus_type **bus = data;
+	struct bus_type **bus = data;
 
 	if (*bus && *bus != dev->bus)
 		return -EINVAL;
@@ -1761,8 +1761,7 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 			}
 
 			ret = iommu_map(domain->domain, iova, phys, size,
-					dma->prot | IOMMU_CACHE,
-					GFP_KERNEL_ACCOUNT);
+					dma->prot | IOMMU_CACHE, GFP_KERNEL);
 			if (ret) {
 				if (!dma->iommu_mapped) {
 					vfio_unpin_pages_remote(dma, iova,
@@ -1857,8 +1856,7 @@ static void vfio_test_domain_fgsp(struct vfio_domain *domain, struct list_head *
 			continue;
 
 		ret = iommu_map(domain->domain, start, page_to_phys(pages), PAGE_SIZE * 2,
-				IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE,
-				GFP_KERNEL_ACCOUNT);
+				IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE, GFP_KERNEL);
 		if (!ret) {
 			size_t unmapped = iommu_unmap(domain->domain, start, PAGE_SIZE);
 
@@ -1978,7 +1976,7 @@ static void vfio_iommu_detach_group(struct vfio_domain *domain,
 		iommu_detach_group(domain->domain, group->iommu_group);
 }
 
-static bool vfio_bus_is_mdev(const struct bus_type *bus)
+static bool vfio_bus_is_mdev(struct bus_type *bus)
 {
 	struct bus_type *mdev_bus;
 	bool ret = false;
@@ -2269,7 +2267,7 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 
 	if (type == VFIO_EMULATED_IOMMU) {
 		/* RHEL-only - BEGIN */
-		const struct bus_type *bus = NULL;
+		struct bus_type *bus = NULL;
 
 		ret = iommu_group_for_each_dev(iommu_group, &bus, vfio_bus_type);
 

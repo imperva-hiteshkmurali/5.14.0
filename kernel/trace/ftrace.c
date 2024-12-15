@@ -325,7 +325,7 @@ int __register_ftrace_function(struct ftrace_ops *ops)
 	if (!ftrace_enabled && (ops->flags & FTRACE_OPS_FL_PERMANENT))
 		return -EBUSY;
 
-	if (!is_kernel_core_data((unsigned long)ops))
+	if (!core_kernel_data((unsigned long)ops))
 		ops->flags |= FTRACE_OPS_FL_DYNAMIC;
 
 	add_ftrace_ops(&ftrace_ops_list, ops);
@@ -2765,16 +2765,18 @@ ftrace_nop_initialize(struct module *mod, struct dyn_ftrace *rec)
  * archs can override this function if they must do something
  * before the modifying code is performed.
  */
-void __weak ftrace_arch_code_modify_prepare(void)
+int __weak ftrace_arch_code_modify_prepare(void)
 {
+	return 0;
 }
 
 /*
  * archs can override this function if they must do something
  * after the modifying code is performed.
  */
-void __weak ftrace_arch_code_modify_post_process(void)
+int __weak ftrace_arch_code_modify_post_process(void)
 {
+	return 0;
 }
 
 void ftrace_modify_all_code(int command)
@@ -2860,7 +2862,12 @@ void __weak arch_ftrace_update_code(int command)
 
 static void ftrace_run_update_code(int command)
 {
-	ftrace_arch_code_modify_prepare();
+	int ret;
+
+	ret = ftrace_arch_code_modify_prepare();
+	FTRACE_WARN_ON(ret);
+	if (ret)
+		return;
 
 	/*
 	 * By default we use stop_machine() to modify the code.
@@ -2870,7 +2877,8 @@ static void ftrace_run_update_code(int command)
 	 */
 	arch_ftrace_update_code(command);
 
-	ftrace_arch_code_modify_post_process();
+	ret = ftrace_arch_code_modify_post_process();
+	FTRACE_WARN_ON(ret);
 }
 
 static void ftrace_run_modify_code(struct ftrace_ops *ops, int command,
@@ -6642,27 +6650,6 @@ static int ftrace_cmp_ips(const void *a, const void *b)
 	return 0;
 }
 
-#ifdef CONFIG_FTRACE_SORT_STARTUP_TEST
-static void test_is_sorted(unsigned long *start, unsigned long count)
-{
-	int i;
-
-	for (i = 1; i < count; i++) {
-		if (WARN(start[i - 1] > start[i],
-			 "[%d] %pS at %lx is not sorted with %pS at %lx\n", i,
-			 (void *)start[i - 1], start[i - 1],
-			 (void *)start[i], start[i]))
-			break;
-	}
-	if (i == count)
-		pr_info("ftrace section at %px sorted properly\n", start);
-}
-#else
-static void test_is_sorted(unsigned long *start, unsigned long count)
-{
-}
-#endif
-
 static int ftrace_process_locs(struct module *mod,
 			       unsigned long *start,
 			       unsigned long *end)
@@ -6681,17 +6668,8 @@ static int ftrace_process_locs(struct module *mod,
 	if (!count)
 		return 0;
 
-	/*
-	 * Sorting mcount in vmlinux at build time depend on
-	 * CONFIG_BUILDTIME_MCOUNT_SORT, while mcount loc in
-	 * modules can not be sorted at build time.
-	 */
-	if (!IS_ENABLED(CONFIG_BUILDTIME_MCOUNT_SORT) || mod) {
-		sort(start, count, sizeof(*start),
-		     ftrace_cmp_ips, NULL);
-	} else {
-		test_is_sorted(start, count);
-	}
+	sort(start, count, sizeof(*start),
+	     ftrace_cmp_ips, NULL);
 
 	start_pg = ftrace_allocate_pages(count);
 	if (!start_pg)
@@ -8370,7 +8348,8 @@ struct kallsyms_data {
  * and returns 1 in case we resolved all the requested symbols,
  * 0 otherwise.
  */
-static int kallsyms_callback(void *data, const char *name, unsigned long addr)
+static int kallsyms_callback(void *data, const char *name,
+			     struct module *mod, unsigned long addr)
 {
 	struct kallsyms_data *args = data;
 	const char **sym;
@@ -8422,6 +8401,6 @@ int ftrace_lookup_symbols(const char **sorted_syms, size_t cnt, unsigned long *a
 	found_all = kallsyms_on_each_symbol(kallsyms_callback, &args);
 	if (found_all)
 		return 0;
-	found_all = module_kallsyms_on_each_symbol(NULL, kallsyms_callback, &args);
+	found_all = module_kallsyms_on_each_symbol(kallsyms_callback, &args);
 	return found_all ? 0 : -ESRCH;
 }

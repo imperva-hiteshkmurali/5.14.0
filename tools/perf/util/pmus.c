@@ -10,7 +10,6 @@
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
-#include "cpumap.h"
 #include "debug.h"
 #include "evsel.h"
 #include "pmus.h"
@@ -36,8 +35,6 @@ static LIST_HEAD(core_pmus);
 static LIST_HEAD(other_pmus);
 static bool read_sysfs_core_pmus;
 static bool read_sysfs_all_pmus;
-
-static void pmu_read_sysfs(bool core_only);
 
 int pmu_name_len_no_suffix(const char *str, unsigned long *num)
 {
@@ -126,14 +123,6 @@ struct perf_pmu *perf_pmus__find(const char *name)
 	pmu = perf_pmu__lookup(core_pmu ? &core_pmus : &other_pmus, dirfd, name);
 	close(dirfd);
 
-	if (!pmu) {
-		/*
-		 * Looking up an inidividual PMU failed. This may mean name is
-		 * an alias, so read the PMUs from sysfs and try to find again.
-		 */
-		pmu_read_sysfs(core_pmu);
-		pmu = pmu_find(name);
-	}
 	return pmu;
 }
 
@@ -279,7 +268,7 @@ struct perf_pmu *perf_pmus__scan_core(struct perf_pmu *pmu)
 {
 	if (!pmu) {
 		pmu_read_sysfs(/*core_only=*/true);
-		return list_first_entry_or_null(&core_pmus, typeof(*pmu), list);
+		pmu = list_prepare_entry(pmu, &core_pmus, list);
 	}
 	list_for_each_entry_continue(pmu, &core_pmus, list)
 		return pmu;
@@ -343,6 +332,12 @@ const struct perf_pmu *perf_pmus__pmu_for_pmu_filter(const char *str)
 		}
 	}
 	return NULL;
+}
+
+int __weak perf_pmus__num_mem_pmus(void)
+{
+	/* All core PMUs are for mem events. */
+	return perf_pmus__num_core_pmus();
 }
 
 /** Struct for ordering events as output in perf list. */
@@ -596,9 +591,4 @@ struct perf_pmu *evsel__find_pmu(const struct evsel *evsel)
 		((struct evsel *)evsel)->pmu = pmu;
 	}
 	return pmu;
-}
-
-struct perf_pmu *perf_pmus__find_core_pmu(void)
-{
-	return perf_pmus__scan_core(NULL);
 }

@@ -1,3 +1,2 @@
-#5-
-0x81d5b7ca	kthread_stop	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x05f124dc	kthread_stop	vmlinux	EXPORT_SYMBOL	

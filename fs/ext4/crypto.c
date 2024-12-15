@@ -33,8 +33,6 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 
 #if IS_ENABLED(CONFIG_UNICODE)
 	err = ext4_fname_setup_ci_filename(dir, iname, fname);
-	if (err)
-		ext4_fname_free_filename(fname);
 #endif
 	return err;
 }
@@ -53,8 +51,6 @@ int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 
 #if IS_ENABLED(CONFIG_UNICODE)
 	err = ext4_fname_setup_ci_filename(dir, &dentry->d_name, fname);
-	if (err)
-		ext4_fname_free_filename(fname);
 #endif
 	return err;
 }

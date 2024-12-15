@@ -3037,11 +3037,11 @@ static int myri10ge_change_mtu(struct net_device *dev, int new_mtu)
 		/* if we change the mtu on an active device, we must
 		 * reset the device so the firmware sees the change */
 		myri10ge_close(dev);
-		WRITE_ONCE(dev->mtu, new_mtu);
+		dev->mtu = new_mtu;
 		myri10ge_open(dev);
-	} else {
-		WRITE_ONCE(dev->mtu, new_mtu);
-	}
+	} else
+		dev->mtu = new_mtu;
+
 	return 0;
 }
 
@@ -3740,6 +3740,7 @@ static int myri10ge_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct net_device *netdev;
 	struct myri10ge_priv *mgp;
 	struct device *dev = &pdev->dev;
+	int i;
 	int status = -ENXIO;
 	int dac_enabled;
 	unsigned hdr_offset, ss_offset;
@@ -3831,7 +3832,8 @@ static int myri10ge_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (status)
 		goto abort_with_ioremap;
 
-	eth_hw_addr_set(netdev, mgp->mac_addr);
+	for (i = 0; i < ETH_ALEN; i++)
+		netdev->dev_addr[i] = mgp->mac_addr[i];
 
 	myri10ge_select_firmware(mgp);
 

@@ -1,3 +1,2 @@
-#5-
-0x8e0e6c24	__vfs_removexattr	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xcf8912ee	__vfs_removexattr	vmlinux	EXPORT_SYMBOL	

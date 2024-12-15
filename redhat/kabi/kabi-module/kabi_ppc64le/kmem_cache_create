@@ -1,3 +1,2 @@
-#5-
-0x28d59e58	kmem_cache_create	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x11c2a488	kmem_cache_create	vmlinux	EXPORT_SYMBOL	

@@ -1,3 +1,2 @@
-#5-
-0x69e016e9	vfs_getattr	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x05be6c59	vfs_getattr	vmlinux	EXPORT_SYMBOL	

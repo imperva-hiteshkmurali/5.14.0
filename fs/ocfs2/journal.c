@@ -15,7 +15,6 @@
 #include <linux/time.h>
 #include <linux/random.h>
 #include <linux/delay.h>
-#include <linux/writeback.h>
 
 #include <cluster/masklog.h>
 
@@ -557,7 +556,7 @@ static void ocfs2_abort_trigger(struct jbd2_buffer_trigger_type *triggers,
 	     (unsigned long)bh,
 	     (unsigned long long)bh->b_blocknr);
 
-	ocfs2_error(bh->b_assoc_map->host->i_sb,
+	ocfs2_error(bh->b_bdev->bd_super,
 		    "JBD2 has aborted our journal, ocfs2 cannot continue\n");
 }
 
@@ -780,14 +779,14 @@ void ocfs2_journal_dirty(handle_t *handle, struct buffer_head *bh)
 		mlog_errno(status);
 		if (!is_handle_aborted(handle)) {
 			journal_t *journal = handle->h_transaction->t_journal;
+			struct super_block *sb = bh->b_bdev->bd_super;
 
 			mlog(ML_ERROR, "jbd2_journal_dirty_metadata failed. "
 					"Aborting transaction and journal.\n");
 			handle->h_err = status;
 			jbd2_journal_abort_handle(handle);
 			jbd2_journal_abort(journal, status);
-			ocfs2_abort(bh->b_assoc_map->host->i_sb,
-				    "Journal already aborted.\n");
+			ocfs2_abort(sb, "Journal already aborted.\n");
 		}
 	}
 }
@@ -809,19 +808,6 @@ void ocfs2_set_journal_params(struct ocfs2_super *osb)
 	else
 		journal->j_flags &= ~JBD2_BARRIER;
 	write_unlock(&journal->j_state_lock);
-}
-
-static int ocfs2_journal_submit_inode_data_buffers(struct jbd2_inode *jinode)
-{
-	struct address_space *mapping = jinode->i_vfs_inode->i_mapping;
-	struct writeback_control wbc = {
-		.sync_mode =  WB_SYNC_ALL,
-		.nr_to_write = mapping->nrpages * 2,
-		.range_start = jinode->i_dirty_start,
-		.range_end = jinode->i_dirty_end,
-	};
-
-	return generic_writepages(mapping, &wbc);
 }
 
 int ocfs2_journal_init(struct ocfs2_journal *journal, int *dirty)
@@ -883,9 +869,9 @@ int ocfs2_journal_init(struct ocfs2_journal *journal, int *dirty)
 
 	/* call the kernels journal init function now */
 	j_journal = jbd2_journal_init_inode(inode);
-	if (IS_ERR(j_journal)) {
+	if (j_journal == NULL) {
 		mlog(ML_ERROR, "Linux journal layer error\n");
-		status = PTR_ERR(j_journal);
+		status = -EINVAL;
 		goto done;
 	}
 
@@ -896,7 +882,7 @@ int ocfs2_journal_init(struct ocfs2_journal *journal, int *dirty)
 
 	journal->j_journal = j_journal;
 	journal->j_journal->j_submit_inode_data_buffers =
-		ocfs2_journal_submit_inode_data_buffers;
+		jbd2_journal_submit_inode_data_buffers;
 	journal->j_journal->j_finish_inode_data_buffers =
 		jbd2_journal_finish_inode_data_buffers;
 	journal->j_inode = inode;
@@ -1658,9 +1644,9 @@ static int ocfs2_replay_journal(struct ocfs2_super *osb,
 	}
 
 	journal = jbd2_journal_init_inode(inode);
-	if (IS_ERR(journal)) {
+	if (journal == NULL) {
 		mlog(ML_ERROR, "Linux journal layer error\n");
-		status = PTR_ERR(journal);
+		status = -EIO;
 		goto done;
 	}
 

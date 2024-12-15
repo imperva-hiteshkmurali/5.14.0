@@ -741,7 +741,7 @@ static void __init prefill_possible_map(void)
 	for (; i < NR_CPUS; i++)
 		set_cpu_possible(i, false);
 
-	set_nr_cpu_ids(possible);
+	nr_cpu_ids = possible;
 }
 #else
 static inline void prefill_possible_map(void) {}
@@ -762,7 +762,7 @@ void __init setup_arch(char **cmdline_p)
 
 #if defined(CONFIG_VT)
 #if defined(CONFIG_VGA_CONSOLE)
-	vgacon_register_screen(&screen_info);
+	conswitchp = &vga_con;
 #endif
 #endif
 

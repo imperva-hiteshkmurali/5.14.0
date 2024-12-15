@@ -93,12 +93,9 @@ struct nouveau_cli {
 	struct nvif_mmu mmu;
 	struct nouveau_vmm vmm;
 	struct nouveau_vmm svm;
-	struct {
-		struct nouveau_uvmm *ptr;
-		bool disabled;
-	} uvmm;
+	struct nouveau_uvmm uvmm;
 
-	struct nouveau_sched *sched;
+	struct nouveau_sched_entity sched_entity;
 
 	const struct nvif_mclass *mem;
 
@@ -124,7 +121,10 @@ struct nouveau_cli_work {
 static inline struct nouveau_uvmm *
 nouveau_cli_uvmm(struct nouveau_cli *cli)
 {
-	return cli ? cli->uvmm.ptr : NULL;
+	if (!cli || !cli->uvmm.vmm.cli)
+		return NULL;
+
+	return &cli->uvmm;
 }
 
 static inline struct nouveau_uvmm *
@@ -258,9 +258,6 @@ struct nouveau_drm {
 		u64 context_base;
 	} *runl;
 
-	/* Workqueue used for channel schedulers. */
-	struct workqueue_struct *sched_wq;
-
 	/* context for accelerated drm-internal operations */
 	struct nouveau_channel *cechan;
 	struct nouveau_channel *channel;
@@ -276,7 +273,6 @@ struct nouveau_drm {
 	/* modesetting */
 	struct nvbios vbios;
 	struct nouveau_display *display;
-	bool headless;
 	struct work_struct hpd_work;
 	spinlock_t hpd_lock;
 	u32 hpd_pending;
@@ -302,6 +298,10 @@ struct nouveau_drm {
 		struct mutex lock;
 		bool component_registered;
 	} audio;
+
+	struct drm_gpu_scheduler sched;
+	struct workqueue_struct *sched_wq;
+
 };
 
 static inline struct nouveau_drm *

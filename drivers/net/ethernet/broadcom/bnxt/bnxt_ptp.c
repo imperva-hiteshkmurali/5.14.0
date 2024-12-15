@@ -521,8 +521,9 @@ static int bnxt_hwrm_ptp_cfg(struct bnxt *bp)
 
 	if (netif_running(bp->dev)) {
 		if (ptp->rx_filter == HWTSTAMP_FILTER_ALL) {
-			bnxt_close_nic(bp, false, false);
-			rc = bnxt_open_nic(bp, false, false);
+			rc = bnxt_close_nic(bp, false, false);
+			if (!rc)
+				rc = bnxt_open_nic(bp, false, false);
 		} else {
 			bnxt_ptp_cfg_tstamp_filters(bp);
 		}
@@ -649,7 +650,7 @@ static int bnxt_map_ptp_regs(struct bnxt *bp)
 	int rc, i;
 
 	reg_arr = ptp->refclk_regs;
-	if (BNXT_CHIP_P5(bp)) {
+	if (bp->flags & BNXT_FLAG_CHIP_P5) {
 		rc = bnxt_map_regs(bp, reg_arr, 2, BNXT_PTP_GRC_WIN);
 		if (rc)
 			return rc;
@@ -966,7 +967,7 @@ int bnxt_ptp_init(struct bnxt *bp, bool phc_cfg)
 		rc = err;
 		goto out;
 	}
-	if (BNXT_CHIP_P5(bp)) {
+	if (bp->flags & BNXT_FLAG_CHIP_P5) {
 		spin_lock_bh(&ptp->ptp_lock);
 		bnxt_refclk_read(bp, NULL, &ptp->current_time);
 		WRITE_ONCE(ptp->old_time, ptp->current_time);

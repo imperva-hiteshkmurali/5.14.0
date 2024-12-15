@@ -1,3 +1,2 @@
-#5-
-0x80c1bc34	trace_event_buffer_commit	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0xb8b3311b	trace_event_buffer_commit	vmlinux	EXPORT_SYMBOL_GPL	

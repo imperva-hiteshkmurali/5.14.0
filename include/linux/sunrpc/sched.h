@@ -38,17 +38,6 @@ struct rpc_wait {
 };
 
 /*
- * This describes a timeout strategy
- */
-struct rpc_timeout {
-	unsigned long		to_initval,		/* initial timeout */
-				to_maxval,		/* max timeout */
-				to_increment;		/* if !exponential */
-	unsigned int		to_retries;		/* max # of retries */
-	unsigned char		to_exponential;
-};
-
-/*
  * This is the RPC task struct
  */
 struct rpc_task {
@@ -216,8 +205,7 @@ struct rpc_wait_queue {
  */
 struct rpc_task *rpc_new_task(const struct rpc_task_setup *);
 struct rpc_task *rpc_run_task(const struct rpc_task_setup *);
-struct rpc_task *rpc_run_bc_task(struct rpc_rqst *req,
-		struct rpc_timeout *timeout);
+struct rpc_task *rpc_run_bc_task(struct rpc_rqst *req);
 void		rpc_put_task(struct rpc_task *);
 void		rpc_put_task_async(struct rpc_task *);
 bool		rpc_task_set_rpc_status(struct rpc_task *task, int rpc_status);
@@ -269,7 +257,7 @@ int		rpc_malloc(struct rpc_task *);
 void		rpc_free(struct rpc_task *);
 int		rpciod_up(void);
 void		rpciod_down(void);
-int		rpc_wait_for_completion_task(struct rpc_task *task);
+int		__rpc_wait_for_completion_task(struct rpc_task *task, wait_bit_action_f *);
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
 struct net;
 void		rpc_show_tasks(struct net *);
@@ -280,6 +268,11 @@ extern struct workqueue_struct *rpciod_workqueue;
 extern struct workqueue_struct *xprtiod_workqueue;
 void		rpc_prepare_task(struct rpc_task *task);
 gfp_t		rpc_task_gfp_mask(void);
+
+static inline int rpc_wait_for_completion_task(struct rpc_task *task)
+{
+	return __rpc_wait_for_completion_task(task, NULL);
+}
 
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG) || IS_ENABLED(CONFIG_TRACEPOINTS)
 static inline const char * rpc_qname(const struct rpc_wait_queue *q)

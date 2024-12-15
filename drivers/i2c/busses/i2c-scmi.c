@@ -15,6 +15,9 @@
 #define ACPI_SMBUS_HC_CLASS		"smbus"
 #define ACPI_SMBUS_HC_DEVICE_NAME	"cmi"
 
+/* SMBUS HID definition as supported by Microsoft Windows */
+#define ACPI_SMBUS_MS_HID		"SMB0001"
+
 struct smbus_methods_t {
 	char *mt_info;
 	char *mt_sbr;
@@ -409,13 +412,15 @@ err:
 	return ret;
 }
 
-static void acpi_smbus_cmi_remove(struct acpi_device *device)
+static int acpi_smbus_cmi_remove(struct acpi_device *device)
 {
 	struct acpi_smbus_cmi *smbus_cmi = acpi_driver_data(device);
 
 	i2c_del_adapter(&smbus_cmi->adapter);
 	kfree(smbus_cmi);
 	device->driver_data = NULL;
+
+	return 0;
 }
 
 static struct acpi_driver acpi_smbus_cmi_driver = {

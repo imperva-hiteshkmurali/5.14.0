@@ -12,12 +12,12 @@
  */
 #define pr_fmt(fmt) "pinmux core: " fmt
 
-#include <linux/array_size.h>
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/radix-tree.h>
@@ -35,8 +35,8 @@
 int pinmux_check_ops(struct pinctrl_dev *pctldev)
 {
 	const struct pinmux_ops *ops = pctldev->desc->pmxops;
-	unsigned int nfuncs;
-	unsigned int selector = 0;
+	unsigned nfuncs;
+	unsigned selector = 0;
 
 	/* Check that we implement required operations */
 	if (!ops ||
@@ -84,7 +84,7 @@ int pinmux_validate_map(const struct pinctrl_map *map, int i)
  * Controllers not defined as strict will always return true,
  * menaning that the gpio can be used.
  */
-bool pinmux_can_be_used_for_gpio(struct pinctrl_dev *pctldev, unsigned int pin)
+bool pinmux_can_be_used_for_gpio(struct pinctrl_dev *pctldev, unsigned pin)
 {
 	struct pin_desc *desc = pin_desc_get(pctldev, pin);
 	const struct pinmux_ops *ops = pctldev->desc->pmxops;
@@ -173,8 +173,10 @@ static int pin_request(struct pinctrl_dev *pctldev,
 	else
 		status = 0;
 
-	if (status)
+	if (status) {
+		dev_err(pctldev->dev, "request() failed for pin %d\n", pin);
 		module_put(pctldev->owner);
+	}
 
 out_free_pin:
 	if (status) {
@@ -262,7 +264,7 @@ static const char *pin_free(struct pinctrl_dev *pctldev, int pin,
  */
 int pinmux_request_gpio(struct pinctrl_dev *pctldev,
 			struct pinctrl_gpio_range *range,
-			unsigned int pin, unsigned int gpio)
+			unsigned pin, unsigned gpio)
 {
 	const char *owner;
 	int ret;
@@ -285,7 +287,7 @@ int pinmux_request_gpio(struct pinctrl_dev *pctldev,
  * @pin: the affected currently GPIO-muxed in pin
  * @range: applicable GPIO range
  */
-void pinmux_free_gpio(struct pinctrl_dev *pctldev, unsigned int pin,
+void pinmux_free_gpio(struct pinctrl_dev *pctldev, unsigned pin,
 		      struct pinctrl_gpio_range *range)
 {
 	const char *owner;
@@ -303,7 +305,7 @@ void pinmux_free_gpio(struct pinctrl_dev *pctldev, unsigned int pin,
  */
 int pinmux_gpio_direction(struct pinctrl_dev *pctldev,
 			  struct pinctrl_gpio_range *range,
-			  unsigned int pin, bool input)
+			  unsigned pin, bool input)
 {
 	const struct pinmux_ops *ops;
 	int ret;
@@ -322,8 +324,8 @@ static int pinmux_func_name_to_selector(struct pinctrl_dev *pctldev,
 					const char *function)
 {
 	const struct pinmux_ops *ops = pctldev->desc->pmxops;
-	unsigned int nfuncs = ops->get_functions_count(pctldev);
-	unsigned int selector = 0;
+	unsigned nfuncs = ops->get_functions_count(pctldev);
+	unsigned selector = 0;
 
 	/* See if this pctldev has this function */
 	while (selector < nfuncs) {
@@ -344,7 +346,7 @@ int pinmux_map_to_setting(const struct pinctrl_map *map,
 	struct pinctrl_dev *pctldev = setting->pctldev;
 	const struct pinmux_ops *pmxops = pctldev->desc->pmxops;
 	char const * const *groups;
-	unsigned int num_groups;
+	unsigned num_groups;
 	int ret;
 	const char *group;
 
@@ -409,8 +411,8 @@ int pinmux_enable_setting(const struct pinctrl_setting *setting)
 	const struct pinctrl_ops *pctlops = pctldev->desc->pctlops;
 	const struct pinmux_ops *ops = pctldev->desc->pmxops;
 	int ret = 0;
-	const unsigned int *pins = NULL;
-	unsigned int num_pins = 0;
+	const unsigned *pins = NULL;
+	unsigned num_pins = 0;
 	int i;
 	struct pin_desc *desc;
 
@@ -489,8 +491,8 @@ void pinmux_disable_setting(const struct pinctrl_setting *setting)
 	struct pinctrl_dev *pctldev = setting->pctldev;
 	const struct pinctrl_ops *pctlops = pctldev->desc->pctlops;
 	int ret = 0;
-	const unsigned int *pins = NULL;
-	unsigned int num_pins = 0;
+	const unsigned *pins = NULL;
+	unsigned num_pins = 0;
 	int i;
 	struct pin_desc *desc;
 
@@ -541,8 +543,8 @@ static int pinmux_functions_show(struct seq_file *s, void *what)
 {
 	struct pinctrl_dev *pctldev = s->private;
 	const struct pinmux_ops *pmxops = pctldev->desc->pmxops;
-	unsigned int nfuncs;
-	unsigned int func_selector = 0;
+	unsigned nfuncs;
+	unsigned func_selector = 0;
 
 	if (!pmxops)
 		return 0;
@@ -553,7 +555,7 @@ static int pinmux_functions_show(struct seq_file *s, void *what)
 		const char *func = pmxops->get_function_name(pctldev,
 							  func_selector);
 		const char * const *groups;
-		unsigned int num_groups;
+		unsigned num_groups;
 		int ret;
 		int i;
 
@@ -584,7 +586,7 @@ static int pinmux_pins_show(struct seq_file *s, void *what)
 	struct pinctrl_dev *pctldev = s->private;
 	const struct pinctrl_ops *pctlops = pctldev->desc->pctlops;
 	const struct pinmux_ops *pmxops = pctldev->desc->pmxops;
-	unsigned int i, pin;
+	unsigned i, pin;
 
 	if (!pmxops)
 		return 0;
@@ -675,6 +677,7 @@ void pinmux_show_setting(struct seq_file *s,
 DEFINE_SHOW_ATTRIBUTE(pinmux_functions);
 DEFINE_SHOW_ATTRIBUTE(pinmux_pins);
 
+#define PINMUX_SELECT_MAX 128
 static ssize_t pinmux_select(struct file *file, const char __user *user_buf,
 				   size_t len, loff_t *ppos)
 {
@@ -686,9 +689,17 @@ static ssize_t pinmux_select(struct file *file, const char __user *user_buf,
 	unsigned int num_groups;
 	int fsel, gsel, ret;
 
-	buf = memdup_user_nul(user_buf, len);
-	if (IS_ERR(buf))
-		return PTR_ERR(buf);
+	if (len > PINMUX_SELECT_MAX)
+		return -ENOMEM;
+
+	buf = kzalloc(PINMUX_SELECT_MAX, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = strncpy_from_user(buf, user_buf, PINMUX_SELECT_MAX);
+	if (ret < 0)
+		goto exit_free_buf;
+	buf[len-1] = '\0';
 
 	/* remove leading and trailing spaces of input buffer */
 	gname = strstrip(buf);
@@ -818,7 +829,7 @@ EXPORT_SYMBOL_GPL(pinmux_generic_get_function_name);
 int pinmux_generic_get_function_groups(struct pinctrl_dev *pctldev,
 				       unsigned int selector,
 				       const char * const **groups,
-				       unsigned int * const num_groups)
+				       unsigned * const num_groups)
 {
 	struct function_desc *function;
 
@@ -870,7 +881,7 @@ int pinmux_generic_add_function(struct pinctrl_dev *pctldev,
 				void *data)
 {
 	struct function_desc *function;
-	int selector, error;
+	int selector;
 
 	if (!name)
 		return -EINVAL;
@@ -890,9 +901,7 @@ int pinmux_generic_add_function(struct pinctrl_dev *pctldev,
 	function->num_group_names = num_groups;
 	function->data = data;
 
-	error = radix_tree_insert(&pctldev->pin_function_tree, selector, function);
-	if (error)
-		return error;
+	radix_tree_insert(&pctldev->pin_function_tree, selector, function);
 
 	pctldev->num_functions++;
 

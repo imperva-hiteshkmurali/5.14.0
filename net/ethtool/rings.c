@@ -24,9 +24,10 @@ const struct nla_policy ethnl_rings_get_policy[] = {
 
 static int rings_prepare_data(const struct ethnl_req_info *req_base,
 			      struct ethnl_reply_data *reply_base,
-			      const struct genl_info *info)
+			      struct genl_info *info)
 {
 	struct rings_reply_data *data = RINGS_REPDATA(reply_base);
+	struct netlink_ext_ack *extack = info ? info->extack : NULL;
 	struct net_device *dev = reply_base->dev;
 	int ret;
 
@@ -38,7 +39,7 @@ static int rings_prepare_data(const struct ethnl_req_info *req_base,
 	if (ret < 0)
 		return ret;
 	dev->ethtool_ops->get_ringparam(dev, &data->ringparam,
-					&data->kernel_ringparam, info->extack);
+					&data->kernel_ringparam, extack);
 	ethnl_ops_complete(dev);
 
 	return 0;
@@ -124,8 +125,6 @@ const struct nla_policy ethnl_rings_set_policy[] = {
 	[ETHTOOL_A_RINGS_RX_JUMBO]		= { .type = NLA_U32 },
 	[ETHTOOL_A_RINGS_TX]			= { .type = NLA_U32 },
 	[ETHTOOL_A_RINGS_RX_BUF_LEN]            = NLA_POLICY_MIN(NLA_U32, 1),
-	[ETHTOOL_A_RINGS_TCP_DATA_SPLIT]	=
-		NLA_POLICY_MAX(NLA_U8, ETHTOOL_TCP_DATA_SPLIT_ENABLED),
 	[ETHTOOL_A_RINGS_CQE_SIZE]		= NLA_POLICY_MIN(NLA_U32, 1),
 	[ETHTOOL_A_RINGS_TX_PUSH]		= NLA_POLICY_MAX(NLA_U8, 1),
 	[ETHTOOL_A_RINGS_RX_PUSH]		= NLA_POLICY_MAX(NLA_U8, 1),
@@ -144,14 +143,6 @@ ethnl_set_rings_validate(struct ethnl_req_info *req_info,
 		NL_SET_ERR_MSG_ATTR(info->extack,
 				    tb[ETHTOOL_A_RINGS_RX_BUF_LEN],
 				    "setting rx buf len not supported");
-		return -EOPNOTSUPP;
-	}
-
-	if (tb[ETHTOOL_A_RINGS_TCP_DATA_SPLIT] &&
-	    !(ops->supported_ring_params & ETHTOOL_RING_USE_TCP_DATA_SPLIT)) {
-		NL_SET_ERR_MSG_ATTR(info->extack,
-				    tb[ETHTOOL_A_RINGS_TCP_DATA_SPLIT],
-				    "setting TCP data split is not supported");
 		return -EOPNOTSUPP;
 	}
 
@@ -212,8 +203,6 @@ ethnl_set_rings(struct ethnl_req_info *req_info, struct genl_info *info)
 	ethnl_update_u32(&ringparam.tx_pending, tb[ETHTOOL_A_RINGS_TX], &mod);
 	ethnl_update_u32(&kernel_ringparam.rx_buf_len,
 			 tb[ETHTOOL_A_RINGS_RX_BUF_LEN], &mod);
-	ethnl_update_u8(&kernel_ringparam.tcp_data_split,
-			tb[ETHTOOL_A_RINGS_TCP_DATA_SPLIT], &mod);
 	ethnl_update_u32(&kernel_ringparam.cqe_size,
 			 tb[ETHTOOL_A_RINGS_CQE_SIZE], &mod);
 	ethnl_update_u8(&kernel_ringparam.tx_push,

@@ -1,5 +1,4 @@
 What:		/sys/bus/platform/devices/GGL0001:*/BINF.2
-		/sys/bus/platform/devices/GOOG0016:*/BINF.2
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -12,7 +11,6 @@ Description:
 		== ===============================
 
 What:		/sys/bus/platform/devices/GGL0001:*/BINF.3
-		/sys/bus/platform/devices/GOOG0016:*/BINF.3
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -27,7 +25,6 @@ Description:
 		== =====================================
 
 What:		/sys/bus/platform/devices/GGL0001:*/CHSW
-		/sys/bus/platform/devices/GOOG0016:*/CHSW
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -43,7 +40,6 @@ Description:
 		==== ===========================================
 
 What:		/sys/bus/platform/devices/GGL0001:*/FMAP
-		/sys/bus/platform/devices/GOOG0016:*/FMAP
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -51,7 +47,6 @@ Description:
 		the main processor firmware flashmap.
 
 What:		/sys/bus/platform/devices/GGL0001:*/FRID
-		/sys/bus/platform/devices/GOOG0016:*/FRID
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -59,7 +54,6 @@ Description:
 		of the main processor firmware.
 
 What:		/sys/bus/platform/devices/GGL0001:*/FWID
-		/sys/bus/platform/devices/GOOG0016:*/FWID
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -67,7 +61,6 @@ Description:
 		of the main processor firmware.
 
 What:		/sys/bus/platform/devices/GGL0001:*/GPIO.X/GPIO.0
-		/sys/bus/platform/devices/GOOG0016:*/GPIO.X/GPIO.0
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -82,7 +75,6 @@ Description:
 		=========== ==================================
 
 What:		/sys/bus/platform/devices/GGL0001:*/GPIO.X/GPIO.1
-		/sys/bus/platform/devices/GOOG0016:*/GPIO.X/GPIO.1
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -94,26 +86,25 @@ Description:
 		== =======================
 
 What:		/sys/bus/platform/devices/GGL0001:*/GPIO.X/GPIO.2
-		/sys/bus/platform/devices/GOOG0016:*/GPIO.X/GPIO.2
 Date:		May 2022
 KernelVersion:	5.19
 Description:
 		This file shows the GPIO number on the specified GPIO
 		controller.
 
-What:		/sys/bus/platform/devices/GOOG0016:*/GPIO.X/GPIO.3
+What:		/sys/bus/platform/devices/GGL0001:*/GPIO.X/GPIO.3
 Date:		May 2022
 KernelVersion:	5.19
 Description:
 		This file shows the name of the GPIO controller.
 
-What:		/sys/bus/platform/devices/GOOG0016:*/HWID
+What:		/sys/bus/platform/devices/GGL0001:*/HWID
 Date:		May 2022
 KernelVersion:	5.19
 Description:
 		This file shows the hardware ID for the Chromebook.
 
-What:		/sys/bus/platform/devices/GOOGG0016:*/MECK
+What:		/sys/bus/platform/devices/GGL0001:*/MECK
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -125,7 +116,6 @@ Description:
 		extended registers, this buffer size can be zero.
 
 What:		/sys/bus/platform/devices/GGL0001:*/VBNV.0
-		/sys/bus/platform/devices/GOOG0016:*/VBNV.0
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -135,7 +125,6 @@ Description:
 		bytes of clock data).
 
 What:		/sys/bus/platform/devices/GGL0001:*/VBNV.1
-		/sys/bus/platform/devices/GOOG0016:*/VBNV.1
 Date:		May 2022
 KernelVersion:	5.19
 Description:
@@ -143,11 +132,9 @@ Description:
 		non-volatile storage block.
 
 What:		/sys/bus/platform/devices/GGL0001:*/VDAT
-		/sys/bus/platform/devices/GOOG0016:*/VDAT
 Date:		May 2022
 KernelVersion:	5.19
 Description:
 		This binary file returns the verified boot data block shared
 		between the firmware verification step and the kernel
 		verification step.
-		(hex dump)

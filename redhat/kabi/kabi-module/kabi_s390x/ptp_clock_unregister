@@ -1,3 +1,2 @@
-#5-
-0xbb75e3f5	ptp_clock_unregister	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xb5b3e102	ptp_clock_unregister	vmlinux	EXPORT_SYMBOL	

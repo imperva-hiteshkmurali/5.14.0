@@ -1,3 +1,2 @@
-#5-
-0x236123d0	trace_event_ignore_this_pid	vmlinux	EXPORT_SYMBOL_GPL	
-
+#4-
+0xec394841	trace_event_ignore_this_pid	vmlinux	EXPORT_SYMBOL_GPL	

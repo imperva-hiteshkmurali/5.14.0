@@ -1,3 +1,2 @@
-#5-
-0xe080f10f	block_write_full_page	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xde4080c5	block_write_full_page	vmlinux	EXPORT_SYMBOL	

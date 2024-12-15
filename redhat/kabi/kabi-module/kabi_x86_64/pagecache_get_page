@@ -1,3 +1,2 @@
-#5-
-0x66de05b1	pagecache_get_page	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x2b772630	pagecache_get_page	vmlinux	EXPORT_SYMBOL	

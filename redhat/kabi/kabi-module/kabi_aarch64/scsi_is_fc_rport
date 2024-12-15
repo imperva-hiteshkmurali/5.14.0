@@ -1,3 +1,2 @@
-#5-
-0x0be221d3	scsi_is_fc_rport	drivers/scsi/scsi_transport_fc	EXPORT_SYMBOL	
-
+#4-
+0x35382198	scsi_is_fc_rport	drivers/scsi/scsi_transport_fc	EXPORT_SYMBOL	

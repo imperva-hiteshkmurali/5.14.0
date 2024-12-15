@@ -1241,7 +1241,7 @@ EXC_COMMON_BEGIN(machine_check_common)
 	li	r10,MSR_RI
 	mtmsrd 	r10,1
 	addi	r3,r1,STACK_FRAME_OVERHEAD
-	bl	machine_check_exception_async
+	bl	machine_check_exception
 	b	interrupt_return_srr
 
 
@@ -1301,11 +1301,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_HVMODE)
 	subi	r12,r12,1
 	sth	r12,PACA_IN_MCE(r13)
 
-	/*
-	 * Invoke machine_check_exception to print MCE event and panic.
-	 * This is the NMI version of the handler because we are called from
-	 * the early handler which is a true NMI.
-	 */
+	/* Invoke machine_check_exception to print MCE event and panic. */
 	addi	r3,r1,STACK_FRAME_OVERHEAD
 	bl	machine_check_exception
 
@@ -1683,30 +1679,27 @@ EXC_COMMON_BEGIN(program_check_common)
 	 */
 
 	andi.	r10,r12,MSR_PR
-	bne	.Lnormal_stack		/* If userspace, go normal path */
+	bne	2f			/* If userspace, go normal path */
 
 	andis.	r10,r12,(SRR1_PROGTM)@h
-	bne	.Lemergency_stack	/* If TM, emergency		*/
+	bne	1f			/* If TM, emergency		*/
 
 	cmpdi	r1,-INT_FRAME_SIZE	/* check if r1 is in userspace	*/
-	blt	.Lnormal_stack		/* normal path if not		*/
+	blt	2f			/* normal path if not		*/
 
 	/* Use the emergency stack					*/
-.Lemergency_stack:
-	andi.	r10,r12,MSR_PR		/* Set CR0 correctly for label	*/
+1:	andi.	r10,r12,MSR_PR		/* Set CR0 correctly for label	*/
 					/* 3 in EXCEPTION_PROLOG_COMMON	*/
 	mr	r10,r1			/* Save r1			*/
 	ld	r1,PACAEMERGSP(r13)	/* Use emergency stack		*/
 	subi	r1,r1,INT_FRAME_SIZE	/* alloc stack frame		*/
 	__ISTACK(program_check)=0
 	__GEN_COMMON_BODY program_check
-	b .Ldo_program_check
-
-.Lnormal_stack:
+	b 3f
+2:
 	__ISTACK(program_check)=1
 	__GEN_COMMON_BODY program_check
-
-.Ldo_program_check:
+3:
 	addi	r3,r1,STACK_FRAME_OVERHEAD
 	bl	program_check_exception
 	REST_NVGPRS(r1) /* instruction emulation may change GPRs */

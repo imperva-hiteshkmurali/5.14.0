@@ -8,8 +8,8 @@
  * Copyright (C)      2016  Kees Cook
  */
 
-/* No MITIGATION_PAGE_TABLE_ISOLATION support needed either: */
-#undef CONFIG_MITIGATION_PAGE_TABLE_ISOLATION
+/* No PAGE_TABLE_ISOLATION support needed either: */
+#undef CONFIG_PAGE_TABLE_ISOLATION
 
 #include "error.h"
 #include "misc.h"

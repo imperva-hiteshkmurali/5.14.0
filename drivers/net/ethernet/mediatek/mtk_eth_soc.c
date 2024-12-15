@@ -2589,7 +2589,7 @@ static int __init mtk_init(struct net_device *dev)
 	struct mtk_eth *eth = mac->hw;
 	int ret;
 
-	ret = of_get_ethdev_address(mac->of_node, dev);
+	ret = of_get_mac_address(mac->of_node, dev->dev_addr);
 	if (ret) {
 		/* If the mac address is invalid, use random mac address */
 		eth_hw_addr_random(dev);

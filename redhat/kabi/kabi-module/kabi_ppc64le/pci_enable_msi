@@ -1,3 +1,2 @@
-#5-
-0xe3461862	pci_enable_msi	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x86285525	pci_enable_msi	vmlinux	EXPORT_SYMBOL	

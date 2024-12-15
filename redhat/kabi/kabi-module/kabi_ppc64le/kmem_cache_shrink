@@ -1,3 +1,2 @@
-#5-
-0x23a4de57	kmem_cache_shrink	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xedc236a6	kmem_cache_shrink	vmlinux	EXPORT_SYMBOL	

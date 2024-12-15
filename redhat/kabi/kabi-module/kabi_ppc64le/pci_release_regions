@@ -1,3 +1,2 @@
-#5-
-0x5891a601	pci_release_regions	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x30e83723	pci_release_regions	vmlinux	EXPORT_SYMBOL	

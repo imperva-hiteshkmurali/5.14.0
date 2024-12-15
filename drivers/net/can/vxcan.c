@@ -135,7 +135,7 @@ static int vxcan_change_mtu(struct net_device *dev, int new_mtu)
 	    !can_is_canxl_dev_mtu(new_mtu))
 		return -EINVAL;
 
-	WRITE_ONCE(dev->mtu, new_mtu);
+	dev->mtu = new_mtu;
 	return 0;
 }
 
@@ -192,7 +192,12 @@ static int vxcan_newlink(struct net *net, struct net_device *dev,
 
 		nla_peer = data[VXCAN_INFO_PEER];
 		ifmp = nla_data(nla_peer);
-		err = rtnl_nla_parse_ifinfomsg(peer_tb, nla_peer, extack);
+		err = rtnl_nla_parse_ifla(peer_tb,
+					  nla_data(nla_peer) +
+					  sizeof(struct ifinfomsg),
+					  nla_len(nla_peer) -
+					  sizeof(struct ifinfomsg),
+					  NULL);
 		if (err < 0)
 			return err;
 
@@ -231,7 +236,7 @@ static int vxcan_newlink(struct net *net, struct net_device *dev,
 
 	netif_carrier_off(peer);
 
-	err = rtnl_configure_link(peer, ifmp, 0, NULL);
+	err = rtnl_configure_link(peer, ifmp);
 	if (err < 0)
 		goto unregister_network_device;
 

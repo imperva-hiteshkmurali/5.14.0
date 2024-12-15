@@ -87,7 +87,7 @@ static int try_rdio = 1;
 static int try_wdio = 1;
 static int debug_flag;
 
-static const struct class st_sysfs_class;
+static struct class st_sysfs_class;
 static const struct attribute_group *st_dev_groups[];
 static const struct attribute_group *st_drv_groups[];
 
@@ -4250,10 +4250,11 @@ static int st_probe(struct device *dev)
 	struct st_partstat *STps;
 	struct st_buffer *buffer;
 	int i, error;
+	char *stp;
 
 	if (SDp->type != TYPE_TAPE)
 		return -ENODEV;
-	if (st_incompatible(SDp)) {
+	if ((stp = st_incompatible(SDp))) {
 		sdev_printk(KERN_INFO, SDp,
 			    "OnStream tapes are no longer supported;\n");
 		sdev_printk(KERN_INFO, SDp,
@@ -4438,7 +4439,7 @@ static void scsi_tape_release(struct kref *kref)
 	return;
 }
 
-static const struct class st_sysfs_class = {
+static struct class st_sysfs_class = {
 	.name = "scsi_tape",
 	.dev_groups = st_dev_groups,
 };

@@ -1,3 +1,2 @@
-#5-
-0x30699457	devm_free_irq	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xa34a8177	devm_free_irq	vmlinux	EXPORT_SYMBOL	

@@ -22,6 +22,7 @@
 #include <linux/swap.h>		/* folio_free_swap */
 #include <linux/ptrace.h>	/* user_enable_single_step */
 #include <linux/kdebug.h>	/* notifier mechanism */
+#include "../../mm/internal.h"	/* munlock_vma_page */
 #include <linux/percpu-rwsem.h>
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
@@ -160,7 +161,7 @@ static int __replace_page(struct vm_area_struct *vma, unsigned long addr,
 	int err;
 	struct mmu_notifier_range range;
 
-	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, mm, addr,
+	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, mm, addr,
 				addr + PAGE_SIZE);
 
 	if (new_page) {
@@ -350,10 +351,9 @@ static bool valid_ref_ctr_vma(struct uprobe *uprobe,
 static struct vm_area_struct *
 find_ref_ctr_vma(struct uprobe *uprobe, struct mm_struct *mm)
 {
-	VMA_ITERATOR(vmi, mm, 0);
 	struct vm_area_struct *tmp;
 
-	for_each_vma(vmi, tmp)
+	for (tmp = mm->mmap; tmp; tmp = tmp->vm_next)
 		if (valid_ref_ctr_vma(uprobe, tmp))
 			return tmp;
 
@@ -1233,12 +1233,11 @@ int uprobe_apply(struct inode *inode, loff_t offset,
 
 static int unapply_uprobe(struct uprobe *uprobe, struct mm_struct *mm)
 {
-	VMA_ITERATOR(vmi, mm, 0);
 	struct vm_area_struct *vma;
 	int err = 0;
 
 	mmap_read_lock(mm);
-	for_each_vma(vmi, vma) {
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		unsigned long vaddr;
 		loff_t offset;
 
@@ -1351,7 +1350,7 @@ static int delayed_ref_ctr_inc(struct vm_area_struct *vma)
 }
 
 /*
- * Called from mmap_region/vma_merge with mm->mmap_lock acquired.
+ * Called from mmap_region/vma_adjust with mm->mmap_lock acquired.
  *
  * Currently we ignore all errors and always return 0, the callers
  * can't handle the failure anyway.
@@ -1986,10 +1985,9 @@ bool uprobe_deny_signal(void)
 
 static void mmf_recalc_uprobes(struct mm_struct *mm)
 {
-	VMA_ITERATOR(vmi, mm, 0);
 	struct vm_area_struct *vma;
 
-	for_each_vma(vmi, vma) {
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (!valid_vma(vma, false))
 			continue;
 		/*

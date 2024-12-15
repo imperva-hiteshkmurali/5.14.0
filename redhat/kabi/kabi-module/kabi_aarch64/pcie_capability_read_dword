@@ -1,3 +1,2 @@
-#5-
-0x9691f259	pcie_capability_read_dword	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xa16f9240	pcie_capability_read_dword	vmlinux	EXPORT_SYMBOL	

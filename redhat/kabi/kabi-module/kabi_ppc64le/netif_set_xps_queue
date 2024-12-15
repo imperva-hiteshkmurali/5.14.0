@@ -1,3 +1,2 @@
-#5-
-0x2e08f67a	netif_set_xps_queue	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x395bc0d2	netif_set_xps_queue	vmlinux	EXPORT_SYMBOL	

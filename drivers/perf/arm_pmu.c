@@ -443,7 +443,7 @@ __hw_perf_event_init(struct perf_event *event)
 {
 	struct arm_pmu *armpmu = to_arm_pmu(event->pmu);
 	struct hw_perf_event *hwc = &event->hw;
-	int mapping, ret;
+	int mapping;
 
 	hwc->flags = 0;
 	mapping = armpmu->map_event(event);
@@ -468,10 +468,11 @@ __hw_perf_event_init(struct perf_event *event)
 	/*
 	 * Check whether we need to exclude the counter from certain modes.
 	 */
-	if (armpmu->set_event_filter) {
-		ret = armpmu->set_event_filter(hwc, &event->attr);
-		if (ret)
-			return ret;
+	if (armpmu->set_event_filter &&
+	    armpmu->set_event_filter(hwc, &event->attr)) {
+		pr_debug("ARM performance counters do not support "
+			 "mode exclusion\n");
+		return -EOPNOTSUPP;
 	}
 
 	/*
@@ -894,6 +895,7 @@ struct arm_pmu *armpmu_alloc(void)
 		struct pmu_hw_events *events;
 
 		events = per_cpu_ptr(pmu->hw_events, cpu);
+		raw_spin_lock_init(&events->pmu_lock);
 		events->percpu_pmu = pmu;
 	}
 

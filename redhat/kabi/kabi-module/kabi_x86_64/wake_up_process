@@ -1,3 +1,2 @@
-#5-
-0x9ee25084	wake_up_process	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xafc03f35	wake_up_process	vmlinux	EXPORT_SYMBOL	

@@ -537,7 +537,7 @@ static int __dasd_ioctl_information(struct dasd_block *block,
 	 * This must be hidden from user-space.
 	 */
 	dasd_info->open_count = atomic_read(&block->open_count);
-	if (!block->bdev_file)
+	if (!block->bdev)
 		dasd_info->open_count++;
 
 	/*
@@ -626,8 +626,10 @@ int dasd_ioctl(struct block_device *bdev, blk_mode_t mode,
 	else
 		argp = (void __user *)arg;
 
-	if ((_IOC_DIR(cmd) != _IOC_NONE) && !arg)
+	if ((_IOC_DIR(cmd) != _IOC_NONE) && !arg) {
+		PRINT_DEBUG("empty data ptr");
 		return -EINVAL;
+	}
 
 	base = dasd_device_from_gendisk(bdev->bd_disk);
 	if (!base)

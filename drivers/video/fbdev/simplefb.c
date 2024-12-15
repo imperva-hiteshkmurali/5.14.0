@@ -12,7 +12,6 @@
  * Copyright (C) 1996 Paul Mackerras
  */
 
-#include <linux/aperture.h>
 #include <linux/errno.h>
 #include <linux/fb.h>
 #include <linux/io.h>
@@ -71,8 +70,6 @@ static int simplefb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 
 struct simplefb_par {
 	u32 palette[PSEUDO_PALETTE_SIZE];
-	resource_size_t base;
-	resource_size_t size;
 	struct resource *mem;
 #if defined CONFIG_OF && defined CONFIG_COMMON_CLK
 	bool clks_enabled;
@@ -116,9 +113,11 @@ static void simplefb_destroy(struct fb_info *info)
 
 static const struct fb_ops simplefb_ops = {
 	.owner		= THIS_MODULE,
-	FB_DEFAULT_IOMEM_OPS,
 	.fb_destroy	= simplefb_destroy,
 	.fb_setcolreg	= simplefb_setcolreg,
+	.fb_fillrect	= cfb_fillrect,
+	.fb_copyarea	= cfb_copyarea,
+	.fb_imageblit	= cfb_imageblit,
 };
 
 static struct simplefb_format simplefb_formats[] = SIMPLEFB_FORMATS;
@@ -265,7 +264,8 @@ static int simplefb_clocks_get(struct simplefb_par *par,
 		if (IS_ERR(clock)) {
 			if (PTR_ERR(clock) == -EPROBE_DEFER) {
 				while (--i >= 0) {
-					clk_put(par->clks[i]);
+					if (par->clks[i])
+						clk_put(par->clks[i]);
 				}
 				kfree(par->clks);
 				return -EPROBE_DEFER;
@@ -383,7 +383,7 @@ static int simplefb_regulators_get(struct simplefb_par *par,
 		if (!p || p == prop->name)
 			continue;
 
-		strscpy(name, prop->name,
+		strlcpy(name, prop->name,
 			strlen(prop->name) - strlen(SUPPLY_SUFFIX) + 1);
 		regulator = devm_regulator_get_optional(&pdev->dev, name);
 		if (IS_ERR(regulator)) {
@@ -466,11 +466,7 @@ static int simplefb_attach_genpds(struct simplefb_par *par,
 	err = of_count_phandle_with_args(dev->of_node, "power-domains",
 					 "#power-domain-cells");
 	if (err < 0) {
-		/* Nothing wrong if optional PDs are missing */
-		if (err == -ENOENT)
-			return 0;
-
-		dev_err(dev, "failed to parse power-domains: %d\n", err);
+		dev_info(dev, "failed to parse power-domains: %d\n", err);
 		return err;
 	}
 
@@ -533,6 +529,17 @@ static int simplefb_probe(struct platform_device *pdev)
 	struct simplefb_par *par;
 	struct resource *res, *mem;
 
+	/*
+	 * Generic drivers must not be registered if a framebuffer exists.
+	 * If a native driver was probed, the display hardware was already
+	 * taken and attempting to use the system framebuffer is dangerous.
+	 */
+	if (num_registered_fb > 0) {
+		dev_err(&pdev->dev,
+			"simplefb: a framebuffer is already registered\n");
+		return -EINVAL;
+	}
+
 	if (fb_get_options("simplefb", NULL))
 		return -ENODEV;
 
@@ -591,10 +598,16 @@ static int simplefb_probe(struct platform_device *pdev)
 	info->var.blue = params.format->blue;
 	info->var.transp = params.format->transp;
 
-	par->base = info->fix.smem_start;
-	par->size = info->fix.smem_len;
+	info->apertures = alloc_apertures(1);
+	if (!info->apertures) {
+		ret = -ENOMEM;
+		goto error_fb_release;
+	}
+	info->apertures->ranges[0].base = info->fix.smem_start;
+	info->apertures->ranges[0].size = info->fix.smem_len;
 
 	info->fbops = &simplefb_ops;
+	info->flags = FBINFO_DEFAULT | FBINFO_MISC_FIRMWARE;
 	info->screen_base = ioremap_wc(info->fix.smem_start,
 				       info->fix.smem_len);
 	if (!info->screen_base) {
@@ -628,11 +641,6 @@ static int simplefb_probe(struct platform_device *pdev)
 	if (mem != res)
 		par->mem = mem; /* release in clean-up handler */
 
-	ret = devm_aperture_acquire_for_platform_device(pdev, par->base, par->size);
-	if (ret) {
-		dev_err(&pdev->dev, "Unable to acquire aperture: %d\n", ret);
-		goto error_regulators;
-	}
 	ret = register_framebuffer(info);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Unable to register simplefb: %d\n", ret);
@@ -657,12 +665,14 @@ error_release_mem_region:
 	return ret;
 }
 
-static void simplefb_remove(struct platform_device *pdev)
+static int simplefb_remove(struct platform_device *pdev)
 {
 	struct fb_info *info = platform_get_drvdata(pdev);
 
 	/* simplefb_destroy takes care of info cleanup */
 	unregister_framebuffer(info);
+
+	return 0;
 }
 
 static const struct of_device_id simplefb_of_match[] = {
@@ -677,7 +687,7 @@ static struct platform_driver simplefb_driver = {
 		.of_match_table = simplefb_of_match,
 	},
 	.probe = simplefb_probe,
-	.remove_new = simplefb_remove,
+	.remove = simplefb_remove,
 };
 
 module_platform_driver(simplefb_driver);

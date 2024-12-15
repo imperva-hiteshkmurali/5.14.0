@@ -220,6 +220,9 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 
 	placement->num_placement = c;
 	placement->placement = places;
+
+	placement->num_busy_placement = c;
+	placement->busy_placement = places;
 }
 
 /**
@@ -456,7 +459,7 @@ void amdgpu_bo_free_kernel(struct amdgpu_bo **bo, u64 *gpu_addr,
 		*cpu_addr = NULL;
 }
 
-/* Validate bo size is bit bigger than the request domain */
+/* Validate bo size is bit bigger then the request domain */
 static bool amdgpu_bo_validate_size(struct amdgpu_device *adev,
 					  unsigned long size, u32 domain)
 {
@@ -466,24 +469,29 @@ static bool amdgpu_bo_validate_size(struct amdgpu_device *adev,
 	 * If GTT is part of requested domains the check must succeed to
 	 * allow fall back to GTT.
 	 */
-	if (domain & AMDGPU_GEM_DOMAIN_GTT)
+	if (domain & AMDGPU_GEM_DOMAIN_GTT) {
 		man = ttm_manager_type(&adev->mman.bdev, TTM_PL_TT);
-	else if (domain & AMDGPU_GEM_DOMAIN_VRAM)
-		man = ttm_manager_type(&adev->mman.bdev, TTM_PL_VRAM);
-	else
-		return true;
 
-	if (!man) {
-		if (domain & AMDGPU_GEM_DOMAIN_GTT)
+		if (man && size < man->size)
+			return true;
+		else if (!man)
 			WARN_ON_ONCE("GTT domain requested but GTT mem manager uninitialized");
-		return false;
+		goto fail;
+	} else if (domain & AMDGPU_GEM_DOMAIN_VRAM) {
+		man = ttm_manager_type(&adev->mman.bdev, TTM_PL_VRAM);
+
+		if (man && size < man->size)
+			return true;
+		goto fail;
 	}
 
 	/* TODO add more domains checks, such as AMDGPU_GEM_DOMAIN_CPU, _DOMAIN_DOORBELL */
-	if (size < man->size)
-		return true;
+	return true;
 
-	DRM_DEBUG("BO size %lu > total memory in domain: %llu\n", size, man->size);
+fail:
+	if (man)
+		DRM_DEBUG("BO size %lu > total memory in domain: %llu\n", size,
+			  man->size);
 	return false;
 }
 
@@ -605,8 +613,6 @@ int amdgpu_bo_create(struct amdgpu_device *adev,
 	else
 		amdgpu_bo_placement_from_domain(bo, bp->domain);
 	if (bp->type == ttm_bo_type_kernel)
-		bo->tbo.priority = 2;
-	else if (!(bp->flags & AMDGPU_GEM_CREATE_DISCARDABLE))
 		bo->tbo.priority = 1;
 
 	if (!bp->destroy)
@@ -619,7 +625,8 @@ int amdgpu_bo_create(struct amdgpu_device *adev,
 		return r;
 
 	if (!amdgpu_gmc_vram_full_visible(&adev->gmc) &&
-	    amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+	    bo->tbo.resource->mem_type == TTM_PL_VRAM &&
+	    amdgpu_bo_in_cpu_visible_vram(bo))
 		amdgpu_cs_report_moved_bytes(adev, ctx.bytes_moved,
 					     ctx.bytes_moved);
 	else
@@ -1243,7 +1250,7 @@ int amdgpu_bo_get_metadata(struct amdgpu_bo *bo, void *buffer,
  * amdgpu_bo_move_notify - notification about a memory move
  * @bo: pointer to a buffer object
  * @evict: if this move is evicting the buffer from the graphics address space
- * @new_mem: new resource for backing the BO
+ * @new_mem: new information of the bufer object
  *
  * Marks the corresponding &amdgpu_bo buffer object as invalid, also performs
  * bookkeeping.
@@ -1254,8 +1261,8 @@ void amdgpu_bo_move_notify(struct ttm_buffer_object *bo,
 			   struct ttm_resource *new_mem)
 {
 	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->bdev);
-	struct ttm_resource *old_mem = bo->resource;
 	struct amdgpu_bo *abo;
+	struct ttm_resource *old_mem = bo->resource;
 
 	if (!amdgpu_bo_is_amdgpu_bo(bo))
 		return;
@@ -1266,50 +1273,44 @@ void amdgpu_bo_move_notify(struct ttm_buffer_object *bo,
 	amdgpu_bo_kunmap(abo);
 
 	if (abo->tbo.base.dma_buf && !abo->tbo.base.import_attach &&
-	    old_mem && old_mem->mem_type != TTM_PL_SYSTEM)
+	    bo->resource->mem_type != TTM_PL_SYSTEM)
 		dma_buf_move_notify(abo->tbo.base.dma_buf);
 
+	/* remember the eviction */
+	if (evict)
+		atomic64_inc(&adev->num_evictions);
+
+	/* update statistics */
+	if (!new_mem)
+		return;
+
 	/* move_notify is called before move happens */
-	trace_amdgpu_bo_move(abo, new_mem ? new_mem->mem_type : -1,
-			     old_mem ? old_mem->mem_type : -1);
+	trace_amdgpu_bo_move(abo, new_mem->mem_type, old_mem->mem_type);
 }
 
 void amdgpu_bo_get_memory(struct amdgpu_bo *bo,
 			  struct amdgpu_mem_stats *stats)
 {
-	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
-	struct ttm_resource *res = bo->tbo.resource;
 	uint64_t size = amdgpu_bo_size(bo);
-	struct drm_gem_object *obj;
 	unsigned int domain;
-	bool shared;
 
 	/* Abort if the BO doesn't currently have a backing store */
-	if (!res)
+	if (!bo->tbo.resource)
 		return;
 
-	obj = &bo->tbo.base;
-	shared = drm_gem_object_is_shared_for_memory_stats(obj);
-
-	domain = amdgpu_mem_type_to_domain(res->mem_type);
+	domain = amdgpu_mem_type_to_domain(bo->tbo.resource->mem_type);
 	switch (domain) {
 	case AMDGPU_GEM_DOMAIN_VRAM:
 		stats->vram += size;
-		if (amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+		if (amdgpu_bo_in_cpu_visible_vram(bo))
 			stats->visible_vram += size;
-		if (shared)
-			stats->vram_shared += size;
 		break;
 	case AMDGPU_GEM_DOMAIN_GTT:
 		stats->gtt += size;
-		if (shared)
-			stats->gtt_shared += size;
 		break;
 	case AMDGPU_GEM_DOMAIN_CPU:
 	default:
 		stats->cpu += size;
-		if (shared)
-			stats->cpu_shared += size;
 		break;
 	}
 
@@ -1346,8 +1347,6 @@ void amdgpu_bo_release_notify(struct ttm_buffer_object *bo)
 		return;
 
 	abo = ttm_to_amdgpu_bo(bo);
-
-	WARN_ON(abo->vm_bo);
 
 	if (abo->kfd_bo)
 		amdgpu_amdkfd_release_notify(abo);
@@ -1396,7 +1395,10 @@ vm_fault_t amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 	/* Remember that this BO was accessed by the CPU */
 	abo->flags |= AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED;
 
-	if (amdgpu_res_cpu_visible(adev, bo->resource))
+	if (bo->resource->mem_type != TTM_PL_VRAM)
+		return 0;
+
+	if (amdgpu_bo_in_cpu_visible_vram(abo))
 		return 0;
 
 	/* Can't move a pinned BO to visible VRAM */
@@ -1409,7 +1411,8 @@ vm_fault_t amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 					AMDGPU_GEM_DOMAIN_GTT);
 
 	/* Avoid costly evictions; only set GTT as a busy placement */
-	abo->placements[0].flags |= TTM_PL_FLAG_DESIRED;
+	abo->placement.num_busy_placement = 1;
+	abo->placement.busy_placement = &abo->placements[1];
 
 	r = ttm_bo_validate(bo, &abo->placement, &ctx);
 	if (unlikely(r == -EBUSY || r == -ERESTARTSYS))
@@ -1419,7 +1422,7 @@ vm_fault_t amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 
 	/* this should never happen */
 	if (bo->resource->mem_type == TTM_PL_VRAM &&
-	    !amdgpu_res_cpu_visible(adev, bo->resource))
+	    !amdgpu_bo_in_cpu_visible_vram(abo))
 		return VM_FAULT_SIGBUS;
 
 	ttm_bo_move_to_lru_tail_unlocked(bo);
@@ -1529,14 +1532,10 @@ u64 amdgpu_bo_gpu_offset(struct amdgpu_bo *bo)
 u64 amdgpu_bo_gpu_offset_no_check(struct amdgpu_bo *bo)
 {
 	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
-	uint64_t offset = AMDGPU_BO_INVALID_OFFSET;
+	uint64_t offset;
 
-	if (bo->tbo.resource->mem_type == TTM_PL_TT)
-		offset = amdgpu_gmc_agp_addr(&bo->tbo);
-
-	if (offset == AMDGPU_BO_INVALID_OFFSET)
-		offset = (bo->tbo.resource->start << PAGE_SHIFT) +
-			amdgpu_ttm_domain_start(adev, bo->tbo.resource->mem_type);
+	offset = (bo->tbo.resource->start << PAGE_SHIFT) +
+		 amdgpu_ttm_domain_start(adev, bo->tbo.resource->mem_type);
 
 	return amdgpu_gmc_sign_extend(offset);
 }
@@ -1583,7 +1582,6 @@ uint32_t amdgpu_bo_get_preferred_domain(struct amdgpu_device *adev,
  */
 u64 amdgpu_bo_print_info(int id, struct amdgpu_bo *bo, struct seq_file *m)
 {
-	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
 	struct dma_buf_attachment *attachment;
 	struct dma_buf *dma_buf;
 	const char *placement;
@@ -1592,11 +1590,10 @@ u64 amdgpu_bo_print_info(int id, struct amdgpu_bo *bo, struct seq_file *m)
 
 	if (dma_resv_trylock(bo->tbo.base.resv)) {
 		unsigned int domain;
-
 		domain = amdgpu_mem_type_to_domain(bo->tbo.resource->mem_type);
 		switch (domain) {
 		case AMDGPU_GEM_DOMAIN_VRAM:
-			if (amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+			if (amdgpu_bo_in_cpu_visible_vram(bo))
 				placement = "VRAM VISIBLE";
 			else
 				placement = "VRAM";

@@ -1,3 +1,2 @@
-#5-
-0xccb5134b	mutex_lock_interruptible	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x89940875	mutex_lock_interruptible	vmlinux	EXPORT_SYMBOL	

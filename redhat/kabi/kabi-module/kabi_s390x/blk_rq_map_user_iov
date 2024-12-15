@@ -1,3 +1,2 @@
-#5-
-0x736910b4	blk_rq_map_user_iov	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x5b03c3e0	blk_rq_map_user_iov	vmlinux	EXPORT_SYMBOL	

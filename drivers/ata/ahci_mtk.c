@@ -106,7 +106,7 @@ static int mtk_ahci_parse_property(struct ahci_host_priv *hpriv,
 	struct device_node *np = dev->of_node;
 
 	/* enable SATA function if needed */
-	if (of_property_present(np, "mediatek,phy-mode")) {
+	if (of_find_property(np, "mediatek,phy-mode", NULL)) {
 		plat->mode = syscon_regmap_lookup_by_phandle(
 					np, "mediatek,phy-mode");
 		if (IS_ERR(plat->mode)) {

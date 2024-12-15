@@ -28,6 +28,7 @@ struct pt_regs;
 
 extern void asm_do_IRQ(unsigned int, struct pt_regs *);
 void handle_IRQ(unsigned int, struct pt_regs *);
+void init_IRQ(void);
 
 #ifdef CONFIG_SMP
 #include <linux/cpumask.h>

@@ -57,7 +57,8 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 }
 
 
-static ssize_t rs_write(struct tty_struct * tty, const u8 *buf, size_t count)
+static int rs_write(struct tty_struct * tty,
+		    const unsigned char *buf, int count)
 {
 	/* see drivers/char/serialX.c to reference original version */
 
@@ -135,13 +136,9 @@ static const struct tty_operations serial_ops = {
 
 static int __init rs_init(void)
 {
-	int ret;
+	tty_port_init(&serial_port);
 
 	serial_driver = alloc_tty_driver(SERIAL_MAX_NUM_LINES);
-	if (!serial_driver)
-		return -ENOMEM;
-
-	tty_port_init(&serial_port);
 
 	/* Initialize the tty_driver structure */
 
@@ -159,15 +156,8 @@ static int __init rs_init(void)
 	tty_set_operations(serial_driver, &serial_ops);
 	tty_port_link_device(&serial_port, serial_driver, 0);
 
-	ret = tty_register_driver(serial_driver);
-	if (ret) {
-		pr_err("Couldn't register serial driver\n");
-		tty_driver_kref_put(serial_driver);
-		tty_port_destroy(&serial_port);
-
-		return ret;
-	}
-
+	if (tty_register_driver(serial_driver))
+		panic("Couldn't register serial driver\n");
 	return 0;
 }
 
@@ -175,7 +165,7 @@ static int __init rs_init(void)
 static __exit void rs_exit(void)
 {
 	tty_unregister_driver(serial_driver);
-	tty_driver_kref_put(serial_driver);
+	put_tty_driver(serial_driver);
 	tty_port_destroy(&serial_port);
 }
 

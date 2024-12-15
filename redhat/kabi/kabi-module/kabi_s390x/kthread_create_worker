@@ -1,3 +1,2 @@
-#5-
-0xe5dabd80	kthread_create_worker	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x54ce3e13	kthread_create_worker	vmlinux	EXPORT_SYMBOL	

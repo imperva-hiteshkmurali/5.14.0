@@ -1,3 +1,2 @@
-#5-
-0xe121bc84	pcie_print_link_status	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x5b2b284f	pcie_print_link_status	vmlinux	EXPORT_SYMBOL	

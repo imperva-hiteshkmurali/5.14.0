@@ -33,7 +33,6 @@
 #include <skas.h>
 #include <registers.h>
 #include <linux/time-internal.h>
-#include <linux/elfcore.h>
 
 /*
  * This is a per-cpu array.  A processor only modifies its entry and it only
@@ -155,17 +154,16 @@ void fork_handler(void)
 	userspace(&current->thread.regs.regs, current_thread_info()->aux_fp_regs);
 }
 
-int copy_thread(struct task_struct * p, const struct kernel_clone_args *args)
+int copy_thread(unsigned long clone_flags, unsigned long sp,
+		unsigned long arg, struct task_struct * p, unsigned long tls)
 {
-	unsigned long clone_flags = args->flags;
-	unsigned long sp = args->stack;
-	unsigned long tls = args->tls;
 	void (*handler)(void);
+	int kthread = current->flags & (PF_KTHREAD | PF_IO_WORKER);
 	int ret = 0;
 
 	p->thread = (struct thread_struct) INIT_THREAD;
 
-	if (!args->fn) {
+	if (!kthread) {
 	  	memcpy(&p->thread.regs.regs, current_pt_regs(),
 		       sizeof(p->thread.regs.regs));
 		PT_REGS_SET_SYSCALL_RETURN(&p->thread.regs, 0);
@@ -177,14 +175,14 @@ int copy_thread(struct task_struct * p, const struct kernel_clone_args *args)
 		arch_copy_thread(&current->thread.arch, &p->thread.arch);
 	} else {
 		get_safe_registers(p->thread.regs.regs.gp, p->thread.regs.regs.fp);
-		p->thread.request.u.thread.proc = args->fn;
-		p->thread.request.u.thread.arg = args->fn_arg;
+		p->thread.request.u.thread.proc = (int (*)(void *))sp;
+		p->thread.request.u.thread.arg = (void *)arg;
 		handler = new_thread_handler;
 	}
 
 	new_thread(task_stack_page(p), &p->thread.switch_buf, handler);
 
-	if (!args->fn) {
+	if (!kthread) {
 		clear_flushed_tls(p);
 
 		/*
@@ -398,7 +396,7 @@ unsigned long __get_wchan(struct task_struct *p)
 	return 0;
 }
 
-int elf_core_copy_task_fpregs(struct task_struct *t, elf_fpregset_t *fpu)
+int elf_core_copy_fpregs(struct task_struct *t, elf_fpregset_t *fpu)
 {
 	int cpu = current_thread_info()->cpu;
 

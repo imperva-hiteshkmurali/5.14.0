@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#include <linux/printk.h>
+
 typedef unsigned short u16;
 typedef unsigned int   u32;
 

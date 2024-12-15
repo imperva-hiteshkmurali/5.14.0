@@ -184,7 +184,7 @@ void line_flush_chars(struct tty_struct *tty)
 	line_flush_buffer(tty);
 }
 
-ssize_t line_write(struct tty_struct *tty, const u8 *buf, size_t len)
+int line_write(struct tty_struct *tty, const unsigned char *buf, int len)
 {
 	struct line *line = tty->driver_data;
 	unsigned long flags;
@@ -568,7 +568,7 @@ int register_lines(struct line_driver *line_driver,
 	if (err) {
 		printk(KERN_ERR "register_lines : can't register %s driver\n",
 		       line_driver->name);
-		tty_driver_kref_put(driver);
+		put_tty_driver(driver);
 		for (i = 0; i < nlines; i++)
 			tty_port_destroy(&lines[i].port);
 		return err;

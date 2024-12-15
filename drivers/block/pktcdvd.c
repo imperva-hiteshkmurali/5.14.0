@@ -340,8 +340,8 @@ static ssize_t device_map_show(const struct class *c, const struct class_attribu
 		n += sysfs_emit_at(data, n, "%s %u:%u %u:%u\n",
 			pd->disk->disk_name,
 			MAJOR(pd->pkt_dev), MINOR(pd->pkt_dev),
-			MAJOR(file_bdev(pd->bdev_file)->bd_dev),
-			MINOR(file_bdev(pd->bdev_file)->bd_dev));
+			MAJOR(pd->bdev->bd_dev),
+			MINOR(pd->bdev->bd_dev));
 	}
 	mutex_unlock(&ctl_mutex);
 	return n;
@@ -437,8 +437,7 @@ static int pkt_seq_show(struct seq_file *m, void *p)
 	char *msg;
 	int states[PACKET_NUM_STATES];
 
-	seq_printf(m, "Writer %s mapped to %pg:\n", pd->disk->disk_name,
-		   file_bdev(pd->bdev_file));
+	seq_printf(m, "Writer %s mapped to %pg:\n", pd->disk->disk_name, pd->bdev);
 
 	seq_printf(m, "\nSettings:\n");
 	seq_printf(m, "\tpacket size:\t\t%dkB\n", pd->settings.size / 2);
@@ -715,7 +714,7 @@ static void pkt_rbtree_insert(struct pktcdvd_device *pd, struct pkt_rb_node *nod
  */
 static int pkt_generic_packet(struct pktcdvd_device *pd, struct packet_command *cgc)
 {
-	struct request_queue *q = bdev_get_queue(file_bdev(pd->bdev_file));
+	struct request_queue *q = bdev_get_queue(pd->bdev);
 	struct request *rq;
 	int ret = 0;
 
@@ -1046,8 +1045,7 @@ static void pkt_gather_data(struct pktcdvd_device *pd, struct packet_data *pkt)
 			continue;
 
 		bio = pkt->r_bios[f];
-		bio_init(bio, file_bdev(pd->bdev_file), bio->bi_inline_vecs, 1,
-			 REQ_OP_READ);
+		bio_init(bio, pd->bdev, bio->bi_inline_vecs, 1, REQ_OP_READ);
 		bio->bi_iter.bi_sector = pkt->sector + f * (CD_FRAMESIZE >> 9);
 		bio->bi_end_io = pkt_end_io_read;
 		bio->bi_private = pkt;
@@ -1262,8 +1260,8 @@ static void pkt_start_write(struct pktcdvd_device *pd, struct packet_data *pkt)
 	struct device *ddev = disk_to_dev(pd->disk);
 	int f;
 
-	bio_init(pkt->w_bio, file_bdev(pd->bdev_file), pkt->w_bio->bi_inline_vecs,
-		 pkt->frames, REQ_OP_WRITE);
+	bio_init(pkt->w_bio, pd->bdev, pkt->w_bio->bi_inline_vecs, pkt->frames,
+		 REQ_OP_WRITE);
 	pkt->w_bio->bi_iter.bi_sector = pkt->sector;
 	pkt->w_bio->bi_end_io = pkt_end_io_packet_write;
 	pkt->w_bio->bi_private = pkt;
@@ -2155,20 +2153,18 @@ static int pkt_open_dev(struct pktcdvd_device *pd, bool write)
 	int ret;
 	long lba;
 	struct request_queue *q;
-	struct file *bdev_file;
+	struct block_device *bdev;
 
 	/*
 	 * We need to re-open the cdrom device without O_NONBLOCK to be able
 	 * to read/write from/to it. It is already opened in O_NONBLOCK mode
 	 * so open should not fail.
 	 */
-	bdev_file = bdev_file_open_by_dev(file_bdev(pd->bdev_file)->bd_dev,
-				       BLK_OPEN_READ, pd, NULL);
-	if (IS_ERR(bdev_file)) {
-		ret = PTR_ERR(bdev_file);
+	bdev = blkdev_get_by_dev(pd->bdev->bd_dev, BLK_OPEN_READ, pd, NULL);
+	if (IS_ERR(bdev)) {
+		ret = PTR_ERR(bdev);
 		goto out;
 	}
-	pd->f_open_bdev = bdev_file;
 
 	ret = pkt_get_last_written(pd, &lba);
 	if (ret) {
@@ -2177,9 +2173,9 @@ static int pkt_open_dev(struct pktcdvd_device *pd, bool write)
 	}
 
 	set_capacity(pd->disk, lba << 2);
-	set_capacity_and_notify(file_bdev(pd->bdev_file)->bd_disk, lba << 2);
+	set_capacity_and_notify(pd->bdev->bd_disk, lba << 2);
 
-	q = bdev_get_queue(file_bdev(pd->bdev_file));
+	q = bdev_get_queue(pd->bdev);
 	if (write) {
 		ret = pkt_open_write(pd);
 		if (ret)
@@ -2211,7 +2207,7 @@ static int pkt_open_dev(struct pktcdvd_device *pd, bool write)
 	return 0;
 
 out_putdev:
-	fput(bdev_file);
+	blkdev_put(bdev, pd);
 out:
 	return ret;
 }
@@ -2230,8 +2226,7 @@ static void pkt_release_dev(struct pktcdvd_device *pd, int flush)
 	pkt_lock_door(pd, 0);
 
 	pkt_set_speed(pd, MAX_SPEED, MAX_SPEED);
-	fput(pd->f_open_bdev);
-	pd->f_open_bdev = NULL;
+	blkdev_put(pd->bdev, pd);
 
 	pkt_shrink_pktlist(pd);
 }
@@ -2319,8 +2314,8 @@ static void pkt_end_io_read_cloned(struct bio *bio)
 
 static void pkt_make_request_read(struct pktcdvd_device *pd, struct bio *bio)
 {
-	struct bio *cloned_bio = bio_alloc_clone(file_bdev(pd->bdev_file), bio,
-		GFP_NOIO, &pkt_bio_set);
+	struct bio *cloned_bio =
+		bio_alloc_clone(pd->bdev, bio, GFP_NOIO, &pkt_bio_set);
 	struct packet_stacked_data *psd = mempool_alloc(&psd_pool, GFP_NOIO);
 
 	psd->pd = pd;
@@ -2490,7 +2485,7 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 {
 	struct device *ddev = disk_to_dev(pd->disk);
 	int i;
-	struct file *bdev_file;
+	struct block_device *bdev;
 	struct scsi_device *sdev;
 
 	if (pd->pkt_dev == dev) {
@@ -2501,9 +2496,8 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 		struct pktcdvd_device *pd2 = pkt_devs[i];
 		if (!pd2)
 			continue;
-		if (file_bdev(pd2->bdev_file)->bd_dev == dev) {
-			dev_err(ddev, "%pg already setup\n",
-				file_bdev(pd2->bdev_file));
+		if (pd2->bdev->bd_dev == dev) {
+			dev_err(ddev, "%pg already setup\n", pd2->bdev);
 			return -EBUSY;
 		}
 		if (pd2->pkt_dev == dev) {
@@ -2512,13 +2506,13 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 		}
 	}
 
-	bdev_file = bdev_file_open_by_dev(dev, BLK_OPEN_READ | BLK_OPEN_NDELAY,
-				       NULL, NULL);
-	if (IS_ERR(bdev_file))
-		return PTR_ERR(bdev_file);
-	sdev = scsi_device_from_queue(file_bdev(bdev_file)->bd_disk->queue);
+	bdev = blkdev_get_by_dev(dev, BLK_OPEN_READ | BLK_OPEN_NDELAY, NULL,
+				 NULL);
+	if (IS_ERR(bdev))
+		return PTR_ERR(bdev);
+	sdev = scsi_device_from_queue(bdev->bd_disk->queue);
 	if (!sdev) {
-		fput(bdev_file);
+		blkdev_put(bdev, NULL);
 		return -EINVAL;
 	}
 	put_device(&sdev->sdev_gendev);
@@ -2526,8 +2520,8 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 	/* This is safe, since we have a reference from open(). */
 	__module_get(THIS_MODULE);
 
-	pd->bdev_file = bdev_file;
-	set_blocksize(file_bdev(bdev_file), CD_FRAMESIZE);
+	pd->bdev = bdev;
+	set_blocksize(bdev, CD_FRAMESIZE);
 
 	pkt_init_queue(pd);
 
@@ -2539,11 +2533,11 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 	}
 
 	proc_create_single_data(pd->disk->disk_name, 0, pkt_proc, pkt_seq_show, pd);
-	dev_notice(ddev, "writer mapped to %pg\n", file_bdev(bdev_file));
+	dev_notice(ddev, "writer mapped to %pg\n", bdev);
 	return 0;
 
 out_mem:
-	fput(bdev_file);
+	blkdev_put(bdev, NULL);
 	/* This is safe: open() is still holding a reference. */
 	module_put(THIS_MODULE);
 	return -ENOMEM;
@@ -2598,9 +2592,9 @@ static unsigned int pkt_check_events(struct gendisk *disk,
 
 	if (!pd)
 		return 0;
-	if (!pd->bdev_file)
+	if (!pd->bdev)
 		return 0;
-	attached_disk = file_bdev(pd->bdev_file)->bd_disk;
+	attached_disk = pd->bdev->bd_disk;
 	if (!attached_disk || !attached_disk->fops->check_events)
 		return 0;
 	return attached_disk->fops->check_events(attached_disk, clearing);
@@ -2685,7 +2679,7 @@ static int pkt_setup_dev(dev_t dev, dev_t* pkt_dev)
 		goto out_mem2;
 
 	/* inherit events of the host device */
-	disk->events = file_bdev(pd->bdev_file)->bd_disk->events;
+	disk->events = pd->bdev->bd_disk->events;
 
 	ret = add_disk(disk);
 	if (ret)
@@ -2750,7 +2744,7 @@ static int pkt_remove_dev(dev_t pkt_dev)
 	pkt_debugfs_dev_remove(pd);
 	pkt_sysfs_dev_remove(pd);
 
-	fput(pd->bdev_file);
+	blkdev_put(pd->bdev, NULL);
 
 	remove_proc_entry(pd->disk->disk_name, pkt_proc);
 	dev_notice(ddev, "writer unmapped\n");
@@ -2777,7 +2771,7 @@ static void pkt_get_status(struct pkt_ctrl_command *ctrl_cmd)
 
 	pd = pkt_find_dev_from_minor(ctrl_cmd->dev_index);
 	if (pd) {
-		ctrl_cmd->dev = new_encode_dev(file_bdev(pd->bdev_file)->bd_dev);
+		ctrl_cmd->dev = new_encode_dev(pd->bdev->bd_dev);
 		ctrl_cmd->pkt_dev = new_encode_dev(pd->pkt_dev);
 	} else {
 		ctrl_cmd->dev = 0;

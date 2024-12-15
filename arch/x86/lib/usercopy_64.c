@@ -9,7 +9,6 @@
 #include <linux/export.h>
 #include <linux/uaccess.h>
 #include <linux/highmem.h>
-#include <linux/libnvdimm.h>
 
 /*
  * Zero Userspace
@@ -80,7 +79,7 @@ void __memcpy_flushcache(void *_dst, const void *_src, size_t size)
 
 	/* cache copy and flush to align dest */
 	if (!IS_ALIGNED(dest, 8)) {
-		size_t len = min_t(size_t, size, ALIGN(dest, 8) - dest);
+		unsigned len = min_t(unsigned, size, ALIGN(dest, 8) - dest);
 
 		memcpy((void *) dest, (void *) source, len);
 		clean_cache_range((void *) dest, len);
@@ -137,4 +136,13 @@ void __memcpy_flushcache(void *_dst, const void *_src, size_t size)
 	}
 }
 EXPORT_SYMBOL_GPL(__memcpy_flushcache);
+
+void memcpy_page_flushcache(char *to, struct page *page, size_t offset,
+		size_t len)
+{
+	char *from = kmap_atomic(page);
+
+	memcpy_flushcache(to, from + offset, len);
+	kunmap_atomic(from);
+}
 #endif

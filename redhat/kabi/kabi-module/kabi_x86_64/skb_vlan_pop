@@ -1,3 +1,2 @@
-#5-
-0x49f7619a	skb_vlan_pop	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x3479b138	skb_vlan_pop	vmlinux	EXPORT_SYMBOL	

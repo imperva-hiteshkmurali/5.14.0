@@ -21,7 +21,6 @@
 #include <linux/interrupt.h>
 #include <linux/cpu.h>
 #include <linux/gfp.h>
-#include <linux/kexec.h>
 
 #include <asm/mtrr.h>
 #include <asm/tlbflush.h>
@@ -135,7 +134,7 @@ static int smp_stop_nmi_callback(unsigned int val, struct pt_regs *regs)
  */
 DEFINE_IDTENTRY_SYSVEC(sysvec_reboot)
 {
-	apic_eoi();
+	ack_APIC_irq();
 	cpu_emergency_disable_virtualization();
 	stop_this_cpu(NULL);
 }
@@ -157,10 +156,6 @@ static void native_stop_other_cpus(int wait)
 	/* Only proceed if this is the first CPU to reach this code */
 	if (atomic_cmpxchg(&stopping_cpu, -1, cpu) != -1)
 		return;
-
-	/* For kexec, ensure that offline CPUs are out of MWAIT and in HLT */
-	if (kexec_in_progress)
-		smp_kick_mwait_play_dead();
 
 	/*
 	 * 1) Send an IPI on the reboot vector to all other CPUs.
@@ -189,6 +184,9 @@ static void native_stop_other_cpus(int wait)
 	cpumask_clear_cpu(cpu, &cpus_stop_mask);
 
 	if (!cpumask_empty(&cpus_stop_mask)) {
+		/* sync above data before sending IRQ */
+		wmb();
+
 		apic_send_IPI_allbutself(REBOOT_VECTOR);
 
 		/*
@@ -210,10 +208,13 @@ static void native_stop_other_cpus(int wait)
 		 * CPUs to stop.
 		 */
 		if (!smp_no_nmi_ipi && !register_stop_handler()) {
+			/* Sync above data before sending IRQ */
+			wmb();
+
 			pr_emerg("Shutting down cpus with NMI\n");
 
 			for_each_cpu(cpu, &cpus_stop_mask)
-				__apic_send_IPI(cpu, NMI_VECTOR);
+				apic->send_IPI(cpu, NMI_VECTOR);
 		}
 		/*
 		 * Don't wait longer than 10 ms if the caller didn't
@@ -243,7 +244,7 @@ static void native_stop_other_cpus(int wait)
  */
 DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_reschedule_ipi)
 {
-	apic_eoi();
+	ack_APIC_irq();
 	trace_reschedule_entry(RESCHEDULE_VECTOR);
 	inc_irq_stat(irq_resched_count);
 	scheduler_ipi();
@@ -252,7 +253,7 @@ DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_reschedule_ipi)
 
 DEFINE_IDTENTRY_SYSVEC(sysvec_call_function)
 {
-	apic_eoi();
+	ack_APIC_irq();
 	trace_call_function_entry(CALL_FUNCTION_VECTOR);
 	inc_irq_stat(irq_call_count);
 	generic_smp_call_function_interrupt();
@@ -261,7 +262,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_call_function)
 
 DEFINE_IDTENTRY_SYSVEC(sysvec_call_function_single)
 {
-	apic_eoi();
+	ack_APIC_irq();
 	trace_call_function_single_entry(CALL_FUNCTION_SINGLE_VECTOR);
 	inc_irq_stat(irq_call_count);
 	generic_smp_call_function_single_interrupt();
@@ -287,7 +288,8 @@ struct smp_ops smp_ops = {
 #endif
 	.smp_send_reschedule	= native_smp_send_reschedule,
 
-	.kick_ap_alive		= native_kick_ap,
+	.cpu_up			= native_cpu_up,
+	.cpu_die		= native_cpu_die,
 	.cpu_disable		= native_cpu_disable,
 	.play_dead		= native_play_dead,
 

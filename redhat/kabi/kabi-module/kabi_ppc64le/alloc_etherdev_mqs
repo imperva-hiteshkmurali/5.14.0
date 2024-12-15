@@ -1,3 +1,2 @@
-#5-
-0xb0100406	alloc_etherdev_mqs	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x733a3501	alloc_etherdev_mqs	vmlinux	EXPORT_SYMBOL	

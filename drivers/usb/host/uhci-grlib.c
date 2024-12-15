@@ -22,7 +22,6 @@
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
-#include <linux/platform_device.h>
 
 static int uhci_grlib_init(struct usb_hcd *hcd)
 {
@@ -148,7 +147,7 @@ err_usb:
 	return rv;
 }
 
-static void uhci_hcd_grlib_remove(struct platform_device *op)
+static int uhci_hcd_grlib_remove(struct platform_device *op)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(op);
 
@@ -158,6 +157,8 @@ static void uhci_hcd_grlib_remove(struct platform_device *op)
 
 	irq_dispose_mapping(hcd->irq);
 	usb_put_hcd(hcd);
+
+	return 0;
 }
 
 /* Make sure the controller is quiescent and that we're not using it
@@ -184,7 +185,7 @@ MODULE_DEVICE_TABLE(of, uhci_hcd_grlib_of_match);
 
 static struct platform_driver uhci_grlib_driver = {
 	.probe		= uhci_hcd_grlib_probe,
-	.remove_new	= uhci_hcd_grlib_remove,
+	.remove		= uhci_hcd_grlib_remove,
 	.shutdown	= uhci_hcd_grlib_shutdown,
 	.driver = {
 		.name = "grlib-uhci",

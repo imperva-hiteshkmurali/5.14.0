@@ -93,20 +93,20 @@ static int cc770_get_of_node_data(struct platform_device *pdev,
 	if (priv->can.clock.freq > 8000000)
 		priv->cpu_interface |= CPUIF_DMC;
 
-	if (of_property_read_bool(np, "bosch,divide-memory-clock"))
+	if (of_get_property(np, "bosch,divide-memory-clock", NULL))
 		priv->cpu_interface |= CPUIF_DMC;
-	if (of_property_read_bool(np, "bosch,iso-low-speed-mux"))
+	if (of_get_property(np, "bosch,iso-low-speed-mux", NULL))
 		priv->cpu_interface |= CPUIF_MUX;
 
 	if (!of_get_property(np, "bosch,no-comperator-bypass", NULL))
 		priv->bus_config |= BUSCFG_CBY;
-	if (of_property_read_bool(np, "bosch,disconnect-rx0-input"))
+	if (of_get_property(np, "bosch,disconnect-rx0-input", NULL))
 		priv->bus_config |= BUSCFG_DR0;
-	if (of_property_read_bool(np, "bosch,disconnect-rx1-input"))
+	if (of_get_property(np, "bosch,disconnect-rx1-input", NULL))
 		priv->bus_config |= BUSCFG_DR1;
-	if (of_property_read_bool(np, "bosch,disconnect-tx1-output"))
+	if (of_get_property(np, "bosch,disconnect-tx1-output", NULL))
 		priv->bus_config |= BUSCFG_DT1;
-	if (of_property_read_bool(np, "bosch,polarity-dominant"))
+	if (of_get_property(np, "bosch,polarity-dominant", NULL))
 		priv->bus_config |= BUSCFG_POL;
 
 	prop = of_get_property(np, "bosch,clock-out-frequency", &prop_size);

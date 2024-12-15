@@ -17,13 +17,8 @@
 #include <asm/coco.h>
 #include <asm/processor.h>
 
-enum cc_vendor cc_vendor __ro_after_init = CC_VENDOR_NONE;
-u64 cc_mask __ro_after_init;
-
-static struct cc_attr_flags {
-	__u64 host_sev_snp	: 1,
-	      __resv		: 63;
-} cc_flags;
+static enum cc_vendor vendor __ro_after_init;
+static u64 cc_mask __ro_after_init;
 
 static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 {
@@ -98,9 +93,6 @@ static bool noinstr amd_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_GUEST_SEV_SNP:
 		return sev_status & MSR_AMD64_SEV_SNP_ENABLED;
 
-	case CC_ATTR_HOST_SEV_SNP:
-		return cc_flags.host_sev_snp;
-
 	default:
 		return false;
 	}
@@ -111,7 +103,7 @@ static bool noinstr amd_cc_platform_has(enum cc_attr attr)
 
 bool noinstr cc_platform_has(enum cc_attr attr)
 {
-	switch (cc_vendor) {
+	switch (vendor) {
 	case CC_VENDOR_AMD:
 		return amd_cc_platform_has(attr);
 	case CC_VENDOR_INTEL:
@@ -131,7 +123,7 @@ u64 cc_mkenc(u64 val)
 	 * - for AMD, bit *set* means the page is encrypted
 	 * - for AMD with vTOM and for Intel, *clear* means encrypted
 	 */
-	switch (cc_vendor) {
+	switch (vendor) {
 	case CC_VENDOR_AMD:
 		if (sev_status & MSR_AMD64_SNP_VTOM)
 			return val & ~cc_mask;
@@ -147,7 +139,7 @@ u64 cc_mkenc(u64 val)
 u64 cc_mkdec(u64 val)
 {
 	/* See comment in cc_mkenc() */
-	switch (cc_vendor) {
+	switch (vendor) {
 	case CC_VENDOR_AMD:
 		if (sev_status & MSR_AMD64_SNP_VTOM)
 			return val | cc_mask;
@@ -161,48 +153,14 @@ u64 cc_mkdec(u64 val)
 }
 EXPORT_SYMBOL_GPL(cc_mkdec);
 
-static void amd_cc_platform_clear(enum cc_attr attr)
+__init void cc_set_vendor(enum cc_vendor v)
 {
-	switch (attr) {
-	case CC_ATTR_HOST_SEV_SNP:
-		cc_flags.host_sev_snp = 0;
-		break;
-	default:
-		break;
-	}
+	vendor = v;
 }
 
-void cc_platform_clear(enum cc_attr attr)
+__init void cc_set_mask(u64 mask)
 {
-	switch (cc_vendor) {
-	case CC_VENDOR_AMD:
-		amd_cc_platform_clear(attr);
-		break;
-	default:
-		break;
-	}
-}
-
-static void amd_cc_platform_set(enum cc_attr attr)
-{
-	switch (attr) {
-	case CC_ATTR_HOST_SEV_SNP:
-		cc_flags.host_sev_snp = 1;
-		break;
-	default:
-		break;
-	}
-}
-
-void cc_platform_set(enum cc_attr attr)
-{
-	switch (cc_vendor) {
-	case CC_VENDOR_AMD:
-		amd_cc_platform_set(attr);
-		break;
-	default:
-		break;
-	}
+	cc_mask = mask;
 }
 
 __init void cc_random_init(void)

@@ -9,8 +9,8 @@
 
 #include "asix.h"
 
-int __must_check asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
-			       u16 size, void *data, int in_pm)
+int asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
+		  u16 size, void *data, int in_pm)
 {
 	int ret;
 	int (*fn)(struct usbnet *, u8, u8, u16, u16, void *, u16);
@@ -25,12 +25,9 @@ int __must_check asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 	ret = fn(dev, cmd, USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		 value, index, data, size);
 
-	if (unlikely(ret < size)) {
-		ret = ret < 0 ? ret : -ENODATA;
-
+	if (unlikely(ret < 0))
 		netdev_warn(dev->net, "Failed to read reg index 0x%04x: %d\n",
 			    index, ret);
-	}
 
 	return ret;
 }
@@ -580,12 +577,8 @@ int asix_mdio_read_nopm(struct net_device *netdev, int phy_id, int loc)
 		return ret;
 	}
 
-	ret = asix_read_cmd(dev, AX_CMD_READ_MII_REG, phy_id,
-			    (__u16)loc, 2, &res, 1);
-	if (ret < 0) {
-		mutex_unlock(&dev->phy_mutex);
-		return ret;
-	}
+	asix_read_cmd(dev, AX_CMD_READ_MII_REG, phy_id,
+		      (__u16)loc, 2, &res, 1);
 	asix_set_hw_mii(dev, 1);
 	mutex_unlock(&dev->phy_mutex);
 

@@ -1,9 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0
 
+source qos_lib.sh
+
 sch_tbf_pre_hook()
 {
-	bail_on_lldpad "configure DCB" "configure Qdiscs"
+	bail_on_lldpad
 }
 
 lib_dir=$(dirname $0)/../../../net/forwarding

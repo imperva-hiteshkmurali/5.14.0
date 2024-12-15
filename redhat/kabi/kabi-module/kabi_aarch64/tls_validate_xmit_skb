@@ -1,3 +1,2 @@
-#5-
-0x17fee4fa	tls_validate_xmit_skb	net/tls/tls	EXPORT_SYMBOL_GPL	
-
+#4-
+0xa7ee17d3	tls_validate_xmit_skb	net/tls/tls	EXPORT_SYMBOL_GPL	

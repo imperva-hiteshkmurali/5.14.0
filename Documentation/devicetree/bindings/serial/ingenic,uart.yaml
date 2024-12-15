@@ -20,7 +20,6 @@ properties:
     oneOf:
       - enum:
           - ingenic,jz4740-uart
-          - ingenic,jz4750-uart
           - ingenic,jz4760-uart
           - ingenic,jz4780-uart
           - ingenic,x1000-uart
@@ -32,9 +31,6 @@ properties:
       - items:
           - const: ingenic,jz4725b-uart
           - const: ingenic,jz4740-uart
-      - items:
-          - const: ingenic,jz4755-uart
-          - const: ingenic,jz4750-uart
 
   reg:
     maxItems: 1

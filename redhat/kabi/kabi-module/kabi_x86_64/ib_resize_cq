@@ -1,3 +1,2 @@
-#5-
-0x417632a7	ib_resize_cq	drivers/infiniband/core/ib_core	EXPORT_SYMBOL	
-
+#4-
+0xc6e245fd	ib_resize_cq	drivers/infiniband/core/ib_core	EXPORT_SYMBOL	

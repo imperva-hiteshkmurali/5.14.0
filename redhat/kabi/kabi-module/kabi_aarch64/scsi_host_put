@@ -1,3 +1,2 @@
-#5-
-0x40157848	scsi_host_put	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf08ffb75	scsi_host_put	vmlinux	EXPORT_SYMBOL	

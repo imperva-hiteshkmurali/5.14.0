@@ -172,18 +172,6 @@ static int copyout(void __user *to, const void *from, size_t n)
 	return n;
 }
 
-static int copyout_nofault(void __user *to, const void *from, size_t n)
-{
-	long res;
-
-	if (should_fail_usercopy())
-		return n;
-
-	res = copy_to_user_nofault(to, from, n);
-
-	return res < 0 ? n : res;
-}
-
 static int copyin(void *to, const void __user *from, size_t n)
 {
 	size_t res = n;
@@ -196,6 +184,12 @@ static int copyin(void *to, const void __user *from, size_t n)
 		instrument_copy_from_user_after(to, from, n, res);
 	}
 	return res;
+}
+
+static inline struct pipe_buffer *pipe_buf(const struct pipe_inode_info *pipe,
+					   unsigned int slot)
+{
+	return &pipe->bufs[slot & (pipe->ring_size - 1)];
 }
 
 #ifdef PIPE_PARANOIA
@@ -526,8 +520,6 @@ static size_t csum_and_copy_to_pipe_iter(const void *addr, size_t bytes,
 
 size_t _copy_to_iter(const void *addr, size_t bytes, struct iov_iter *i)
 {
-	if (WARN_ON_ONCE(i->data_source))
-		return 0;
 	if (unlikely(iov_iter_is_pipe(i)))
 		return copy_pipe_to_iter(addr, bytes, i);
 	if (user_backed_iter(i))
@@ -614,8 +606,6 @@ static size_t copy_mc_pipe_to_iter(const void *addr, size_t bytes,
  */
 size_t _copy_mc_to_iter(const void *addr, size_t bytes, struct iov_iter *i)
 {
-	if (WARN_ON_ONCE(i->data_source))
-		return 0;
 	if (unlikely(iov_iter_is_pipe(i)))
 		return copy_mc_pipe_to_iter(addr, bytes, i);
 	if (user_backed_iter(i))
@@ -632,9 +622,10 @@ EXPORT_SYMBOL_GPL(_copy_mc_to_iter);
 
 size_t _copy_from_iter(void *addr, size_t bytes, struct iov_iter *i)
 {
-	if (WARN_ON_ONCE(!i->data_source))
+	if (unlikely(iov_iter_is_pipe(i))) {
+		WARN_ON(1);
 		return 0;
-
+	}
 	if (user_backed_iter(i))
 		might_fault();
 	iterate_and_advance(i, bytes, base, len, off,
@@ -648,9 +639,10 @@ EXPORT_SYMBOL(_copy_from_iter);
 
 size_t _copy_from_iter_nocache(void *addr, size_t bytes, struct iov_iter *i)
 {
-	if (WARN_ON_ONCE(!i->data_source))
+	if (unlikely(iov_iter_is_pipe(i))) {
+		WARN_ON(1);
 		return 0;
-
+	}
 	iterate_and_advance(i, bytes, base, len, off,
 		__copy_from_user_inatomic_nocache(addr + off, base, len),
 		memcpy(addr + off, base, len)
@@ -679,9 +671,10 @@ EXPORT_SYMBOL(_copy_from_iter_nocache);
  */
 size_t _copy_from_iter_flushcache(void *addr, size_t bytes, struct iov_iter *i)
 {
-	if (WARN_ON_ONCE(!i->data_source))
+	if (unlikely(iov_iter_is_pipe(i))) {
+		WARN_ON(1);
 		return 0;
-
+	}
 	iterate_and_advance(i, bytes, base, len, off,
 		__copy_from_user_flushcache(addr + off, base, len),
 		memcpy_flushcache(addr + off, base, len)
@@ -722,8 +715,6 @@ size_t copy_page_to_iter(struct page *page, size_t offset, size_t bytes,
 	size_t res = 0;
 	if (unlikely(!page_copy_sane(page, offset, bytes)))
 		return 0;
-	if (WARN_ON_ONCE(i->data_source))
-		return 0;
 	if (unlikely(iov_iter_is_pipe(i)))
 		return copy_page_to_iter_pipe(page, offset, bytes, i);
 	page += offset / PAGE_SIZE; // first subpage
@@ -746,42 +737,6 @@ size_t copy_page_to_iter(struct page *page, size_t offset, size_t bytes,
 	return res;
 }
 EXPORT_SYMBOL(copy_page_to_iter);
-
-size_t copy_page_to_iter_nofault(struct page *page, unsigned offset, size_t bytes,
-				 struct iov_iter *i)
-{
-	size_t res = 0;
-
-	if (!page_copy_sane(page, offset, bytes))
-		return 0;
-	if (WARN_ON_ONCE(i->data_source))
-		return 0;
-	if (unlikely(iov_iter_is_pipe(i)))
-		return copy_page_to_iter_pipe(page, offset, bytes, i);
-	page += offset / PAGE_SIZE; // first subpage
-	offset %= PAGE_SIZE;
-	while (1) {
-		void *kaddr = kmap_local_page(page);
-		size_t n = min(bytes, (size_t)PAGE_SIZE - offset);
-
-		iterate_and_advance(i, n, base, len, off,
-			copyout_nofault(base, kaddr + offset + off, len),
-			memcpy(base, kaddr + offset + off, len)
-		)
-		kunmap_local(kaddr);
-		res += n;
-		bytes -= n;
-		if (!bytes || !n)
-			break;
-		offset += n;
-		if (offset == PAGE_SIZE) {
-			page++;
-			offset = 0;
-		}
-	}
-	return res;
-}
-EXPORT_SYMBOL(copy_page_to_iter_nofault);
 
 size_t copy_page_from_iter(struct page *page, size_t offset, size_t bytes,
 			 struct iov_iter *i)
@@ -857,8 +812,9 @@ size_t copy_page_from_iter_atomic(struct page *page, unsigned offset, size_t byt
 		kunmap_atomic(kaddr);
 		return 0;
 	}
-	if (WARN_ON_ONCE(!i->data_source)) {
+	if (unlikely(iov_iter_is_pipe(i) || iov_iter_is_discard(i))) {
 		kunmap_atomic(kaddr);
+		WARN_ON(1);
 		return 0;
 	}
 	iterate_and_advance(i, bytes, base, len, off,
@@ -1574,9 +1530,10 @@ size_t csum_and_copy_from_iter(void *addr, size_t bytes, __wsum *csum,
 {
 	__wsum sum, next;
 	sum = *csum;
-	if (WARN_ON_ONCE(!i->data_source))
+	if (unlikely(iov_iter_is_pipe(i) || iov_iter_is_discard(i))) {
+		WARN_ON(1);
 		return 0;
-
+	}
 	iterate_and_advance(i, bytes, base, len, off, ({
 		next = csum_and_copy_from_user(base, addr + off, len);
 		sum = csum_block_add(sum, next, off);
@@ -1596,8 +1553,6 @@ size_t csum_and_copy_to_iter(const void *addr, size_t bytes, void *_csstate,
 	struct csum_state *csstate = _csstate;
 	__wsum sum, next;
 
-	if (WARN_ON_ONCE(i->data_source))
-		return 0;
 	if (unlikely(iov_iter_is_discard(i))) {
 		WARN_ON(1);	/* for now */
 		return 0;
@@ -1914,7 +1869,6 @@ int import_ubuf(int rw, void __user *buf, size_t len, struct iov_iter *i)
 	iov_iter_ubuf(i, rw, buf, len);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(import_ubuf);
 
 /**
  * iov_iter_restore() - Restore a &struct iov_iter to the same state as when

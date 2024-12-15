@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#ifndef IORING_CANCEL_H
-#define IORING_CANCEL_H
 
 #include <linux/io_uring_types.h>
 
@@ -24,5 +22,3 @@ void init_hash_table(struct io_hash_table *table, unsigned size);
 
 int io_sync_cancel(struct io_ring_ctx *ctx, void __user *arg);
 bool io_cancel_req_match(struct io_kiocb *req, struct io_cancel_data *cd);
-
-#endif

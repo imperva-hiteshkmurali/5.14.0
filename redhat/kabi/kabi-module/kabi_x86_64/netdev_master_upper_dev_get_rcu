@@ -1,3 +1,2 @@
-#5-
-0x9589cb03	netdev_master_upper_dev_get_rcu	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf47dba03	netdev_master_upper_dev_get_rcu	vmlinux	EXPORT_SYMBOL	

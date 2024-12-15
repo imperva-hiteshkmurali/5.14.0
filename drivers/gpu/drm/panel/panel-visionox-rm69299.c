@@ -20,6 +20,8 @@ struct visionox_rm69299 {
 	struct regulator_bulk_data supplies[2];
 	struct gpio_desc *reset_gpio;
 	struct mipi_dsi_device *dsi;
+	bool prepared;
+	bool enabled;
 };
 
 static inline struct visionox_rm69299 *panel_to_ctx(struct drm_panel *panel)
@@ -78,6 +80,7 @@ static int visionox_rm69299_unprepare(struct drm_panel *panel)
 
 	ret = visionox_rm69299_power_off(ctx);
 
+	ctx->prepared = false;
 	return ret;
 }
 
@@ -85,6 +88,9 @@ static int visionox_rm69299_prepare(struct drm_panel *panel)
 {
 	struct visionox_rm69299 *ctx = panel_to_ctx(panel);
 	int ret;
+
+	if (ctx->prepared)
+		return 0;
 
 	ret = visionox_rm69299_power_on(ctx);
 	if (ret < 0)
@@ -133,6 +139,8 @@ static int visionox_rm69299_prepare(struct drm_panel *panel)
 
 	/* Per DSI spec wait 120ms after sending set_display_on DCS command */
 	msleep(120);
+
+	ctx->prepared = true;
 
 	return 0;
 
@@ -253,6 +261,8 @@ static void visionox_rm69299_remove(struct mipi_dsi_device *dsi)
 	struct visionox_rm69299 *ctx = mipi_dsi_get_drvdata(dsi);
 
 	mipi_dsi_detach(ctx->dsi);
+	mipi_dsi_device_unregister(ctx->dsi);
+
 	drm_panel_remove(&ctx->panel);
 }
 

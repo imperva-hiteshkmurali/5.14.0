@@ -1,3 +1,2 @@
-#5-
-0x3eb8b170	set_user_nice	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xe828a961	set_user_nice	vmlinux	EXPORT_SYMBOL	

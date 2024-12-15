@@ -118,7 +118,7 @@ static void part_stat_read_all(struct block_device *part,
 	}
 }
 
-unsigned int part_in_flight(struct block_device *part)
+static unsigned int part_in_flight(struct block_device *part)
 {
 	unsigned int inflight = 0;
 	int cpu;
@@ -342,7 +342,7 @@ EXPORT_SYMBOL_GPL(disk_uevent);
 
 int disk_scan_partitions(struct gendisk *disk, blk_mode_t mode)
 {
-	struct file *file;
+	struct block_device *bdev;
 	int ret = 0;
 
 	if (disk->flags & (GENHD_FL_NO_PART | GENHD_FL_HIDDEN))
@@ -366,12 +366,12 @@ int disk_scan_partitions(struct gendisk *disk, blk_mode_t mode)
 	}
 
 	set_bit(GD_NEED_PART_SCAN, &disk->state);
-	file = bdev_file_open_by_dev(disk_devt(disk), mode & ~BLK_OPEN_EXCL,
-				     NULL, NULL);
-	if (IS_ERR(file))
-		ret = PTR_ERR(file);
+	bdev = blkdev_get_by_dev(disk_devt(disk), mode & ~BLK_OPEN_EXCL, NULL,
+				 NULL);
+	if (IS_ERR(bdev))
+		ret =  PTR_ERR(bdev);
 	else
-		fput(file);
+		blkdev_put(bdev, NULL);
 
 	/*
 	 * If blkdev_get_by_dev() failed early, GD_NEED_PART_SCAN is still set,
@@ -431,9 +431,7 @@ int __must_check device_add_disk(struct device *parent, struct gendisk *disk,
 				DISK_MAX_PARTS);
 			disk->minors = DISK_MAX_PARTS;
 		}
-		if (disk->first_minor > MINORMASK ||
-		    disk->minors > MINORMASK + 1 ||
-		    disk->first_minor + disk->minors > MINORMASK + 1)
+		if (disk->first_minor + disk->minors > MINORMASK + 1)
 			return -EINVAL;
 	} else {
 		if (WARN_ON(disk->minors))
@@ -485,6 +483,10 @@ int __must_check device_add_disk(struct device *parent, struct gendisk *disk,
 		ret = -ENOMEM;
 		goto out_put_holder_dir;
 	}
+
+	ret = bd_register_pending_holders(disk);
+	if (ret < 0)
+		goto out_put_slave_dir;
 
 	ret = blk_register_queue(disk);
 	if (ret)
@@ -543,7 +545,6 @@ out_put_holder_dir:
 	kobject_put(disk->part0->bd_holder_dir);
 out_del_block_link:
 	sysfs_remove_link(block_depr, dev_name(ddev));
-	pm_runtime_set_memalloc_noio(ddev, false);
 out_device_del:
 	device_del(ddev);
 out_free_ext_minor:
@@ -553,7 +554,7 @@ out_free_ext_minor:
 }
 EXPORT_SYMBOL(device_add_disk);
 
-static void blk_report_disk_dead(struct gendisk *disk, bool surprise)
+static void blk_report_disk_dead(struct gendisk *disk)
 {
 	struct block_device *bdev;
 	unsigned long idx;
@@ -564,7 +565,10 @@ static void blk_report_disk_dead(struct gendisk *disk, bool surprise)
 			continue;
 		rcu_read_unlock();
 
-		bdev_mark_dead(bdev, surprise);
+		mutex_lock(&bdev->bd_holder_lock);
+		if (bdev->bd_holder_ops && bdev->bd_holder_ops->mark_dead)
+			bdev->bd_holder_ops->mark_dead(bdev);
+		mutex_unlock(&bdev->bd_holder_lock);
 
 		put_device(&bdev->bd_device);
 		rcu_read_lock();
@@ -572,7 +576,14 @@ static void blk_report_disk_dead(struct gendisk *disk, bool surprise)
 	rcu_read_unlock();
 }
 
-static void __blk_mark_disk_dead(struct gendisk *disk)
+/**
+ * blk_mark_disk_dead - mark a disk as dead
+ * @disk: disk to mark as dead
+ *
+ * Mark as disk as dead (e.g. surprise removed) and don't accept any new I/O
+ * to this disk.
+ */
+void blk_mark_disk_dead(struct gendisk *disk)
 {
 	/*
 	 * Fail any new I/O.
@@ -592,19 +603,8 @@ static void __blk_mark_disk_dead(struct gendisk *disk)
 	 * Prevent new I/O from crossing bio_queue_enter().
 	 */
 	blk_queue_start_drain(disk->queue);
-}
 
-/**
- * blk_mark_disk_dead - mark a disk as dead
- * @disk: disk to mark as dead
- *
- * Mark as disk as dead (e.g. surprise removed) and don't accept any new I/O
- * to this disk.
- */
-void blk_mark_disk_dead(struct gendisk *disk)
-{
-	__blk_mark_disk_dead(disk);
-	blk_report_disk_dead(disk, true);
+	blk_report_disk_dead(disk);
 }
 EXPORT_SYMBOL_GPL(blk_mark_disk_dead);
 
@@ -641,20 +641,18 @@ void del_gendisk(struct gendisk *disk)
 	disk_del_events(disk);
 
 	/*
-	 * Prevent new openers by unlinked the bdev inode.
+	 * Prevent new openers by unlinked the bdev inode, and write out
+	 * dirty data before marking the disk dead and stopping all I/O.
 	 */
 	mutex_lock(&disk->open_mutex);
-	xa_for_each(&disk->part_tbl, idx, part)
+	xa_for_each(&disk->part_tbl, idx, part) {
 		remove_inode_hash(part->bd_inode);
+		fsync_bdev(part);
+		__invalidate_device(part, true);
+	}
 	mutex_unlock(&disk->open_mutex);
 
-	/*
-	 * Tell the file system to write back all dirty data and shut down if
-	 * it hasn't been notified earlier.
-	 */
-	if (!test_bit(GD_DEAD, &disk->state))
-		blk_report_disk_dead(disk, false);
-	__blk_mark_disk_dead(disk);
+	blk_mark_disk_dead(disk);
 
 	/*
 	 * Drop all partitions now that the disk is marked dead.
@@ -943,10 +941,15 @@ ssize_t part_stat_show(struct device *dev,
 		       struct device_attribute *attr, char *buf)
 {
 	struct block_device *bdev = dev_to_bdev(dev);
+	struct request_queue *q = bdev_get_queue(bdev);
 	struct disk_stats stat;
 	unsigned int inflight;
 
-	inflight = part_in_flight(bdev);
+	if (queue_is_mq(q))
+		inflight = blk_mq_in_flight(q, bdev);
+	else
+		inflight = part_in_flight(bdev);
+
 	if (inflight) {
 		part_stat_lock();
 		update_io_ticks(bdev, jiffies, true);
@@ -1235,8 +1238,11 @@ static int diskstats_show(struct seq_file *seqf, void *v)
 	xa_for_each(&gp->part_tbl, idx, hd) {
 		if (bdev_is_partition(hd) && !bdev_nr_sectors(hd))
 			continue;
+		if (queue_is_mq(gp->queue))
+			inflight = blk_mq_in_flight(gp->queue, hd);
+		else
+			inflight = part_in_flight(hd);
 
-		inflight = part_in_flight(hd);
 		if (inflight) {
 			part_stat_lock();
 			update_io_ticks(hd, jiffies, true);

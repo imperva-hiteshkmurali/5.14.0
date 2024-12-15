@@ -867,11 +867,11 @@ int bpf_fd_array_map_update_elem(struct bpf_map *map, struct file *map_file,
 	}
 
 	if (old_ptr)
-		map->ops->map_fd_put_ptr(map, old_ptr, true);
+		map->ops->map_fd_put_ptr(old_ptr);
 	return 0;
 }
 
-static long __fd_array_map_delete_elem(struct bpf_map *map, void *key, bool need_defer)
+static long fd_array_map_delete_elem(struct bpf_map *map, void *key)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	void *old_ptr;
@@ -890,16 +890,11 @@ static long __fd_array_map_delete_elem(struct bpf_map *map, void *key, bool need
 	}
 
 	if (old_ptr) {
-		map->ops->map_fd_put_ptr(map, old_ptr, need_defer);
+		map->ops->map_fd_put_ptr(old_ptr);
 		return 0;
 	} else {
 		return -ENOENT;
 	}
-}
-
-static long fd_array_map_delete_elem(struct bpf_map *map, void *key)
-{
-	return __fd_array_map_delete_elem(map, key, true);
 }
 
 static void *prog_fd_array_get_ptr(struct bpf_map *map,
@@ -918,9 +913,8 @@ static void *prog_fd_array_get_ptr(struct bpf_map *map,
 	return prog;
 }
 
-static void prog_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void prog_fd_array_put_ptr(void *ptr)
 {
-	/* bpf_prog is freed after one RCU or tasks trace grace period */
 	bpf_prog_put(ptr);
 }
 
@@ -930,13 +924,13 @@ static u32 prog_fd_array_sys_lookup_elem(void *ptr)
 }
 
 /* decrement refcnt of all bpf_progs that are stored in this map */
-static void bpf_fd_array_map_clear(struct bpf_map *map, bool need_defer)
+static void bpf_fd_array_map_clear(struct bpf_map *map)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	int i;
 
 	for (i = 0; i < array->map.max_entries; i++)
-		__fd_array_map_delete_elem(map, &i, need_defer);
+		fd_array_map_delete_elem(map, &i);
 }
 
 static void prog_array_map_seq_show_elem(struct bpf_map *map, void *key,
@@ -1018,16 +1012,11 @@ static void prog_array_map_poke_untrack(struct bpf_map *map,
 	mutex_unlock(&aux->poke_mutex);
 }
 
-void __weak bpf_arch_poke_desc_update(struct bpf_jit_poke_descriptor *poke,
-				      struct bpf_prog *new, struct bpf_prog *old)
-{
-	WARN_ON_ONCE(1);
-}
-
 static void prog_array_map_poke_run(struct bpf_map *map, u32 key,
 				    struct bpf_prog *old,
 				    struct bpf_prog *new)
 {
+	u8 *old_addr, *new_addr, *old_bypass_addr;
 	struct prog_poke_elem *elem;
 	struct bpf_array_aux *aux;
 
@@ -1036,7 +1025,7 @@ static void prog_array_map_poke_run(struct bpf_map *map, u32 key,
 
 	list_for_each_entry(elem, &aux->poke_progs, list) {
 		struct bpf_jit_poke_descriptor *poke;
-		int i;
+		int i, ret;
 
 		for (i = 0; i < elem->aux->size_poke_tab; i++) {
 			poke = &elem->aux->poke_tab[i];
@@ -1055,10 +1044,21 @@ static void prog_array_map_poke_run(struct bpf_map *map, u32 key,
 			 *    activated, so tail call updates can arrive from here
 			 *    while JIT is still finishing its final fixup for
 			 *    non-activated poke entries.
-			 * 3) Also programs reaching refcount of zero while patching
+			 * 3) On program teardown, the program's kallsym entry gets
+			 *    removed out of RCU callback, but we can only untrack
+			 *    from sleepable context, therefore bpf_arch_text_poke()
+			 *    might not see that this is in BPF text section and
+			 *    bails out with -EINVAL. As these are unreachable since
+			 *    RCU grace period already passed, we simply skip them.
+			 * 4) Also programs reaching refcount of zero while patching
 			 *    is in progress is okay since we're protected under
 			 *    poke_mutex and untrack the programs before the JIT
-			 *    buffer is freed.
+			 *    buffer is freed. When we're still in the middle of
+			 *    patching and suddenly kallsyms entry of the program
+			 *    gets evicted, we just skip the rest which is fine due
+			 *    to point 3).
+			 * 5) Any other error happening below from bpf_arch_text_poke()
+			 *    is a unexpected bug.
 			 */
 			if (!READ_ONCE(poke->tailcall_target_stable))
 				continue;
@@ -1068,7 +1068,39 @@ static void prog_array_map_poke_run(struct bpf_map *map, u32 key,
 			    poke->tail_call.key != key)
 				continue;
 
-			bpf_arch_poke_desc_update(poke, new, old);
+			old_bypass_addr = old ? NULL : poke->bypass_addr;
+			old_addr = old ? (u8 *)old->bpf_func + poke->adj_off : NULL;
+			new_addr = new ? (u8 *)new->bpf_func + poke->adj_off : NULL;
+
+			if (new) {
+				ret = bpf_arch_text_poke(poke->tailcall_target,
+							 BPF_MOD_JUMP,
+							 old_addr, new_addr);
+				BUG_ON(ret < 0 && ret != -EINVAL);
+				if (!old) {
+					ret = bpf_arch_text_poke(poke->tailcall_bypass,
+								 BPF_MOD_JUMP,
+								 poke->bypass_addr,
+								 NULL);
+					BUG_ON(ret < 0 && ret != -EINVAL);
+				}
+			} else {
+				ret = bpf_arch_text_poke(poke->tailcall_bypass,
+							 BPF_MOD_JUMP,
+							 old_bypass_addr,
+							 poke->bypass_addr);
+				BUG_ON(ret < 0 && ret != -EINVAL);
+				/* let other CPUs finish the execution of program
+				 * so that it will not possible to expose them
+				 * to invalid nop, stack unwind, nop state
+				 */
+				if (!ret)
+					synchronize_rcu();
+				ret = bpf_arch_text_poke(poke->tailcall_target,
+							 BPF_MOD_JUMP,
+							 old_addr, NULL);
+				BUG_ON(ret < 0 && ret != -EINVAL);
+			}
 		}
 	}
 }
@@ -1077,7 +1109,7 @@ static void prog_array_map_clear_deferred(struct work_struct *work)
 {
 	struct bpf_map *map = container_of(work, struct bpf_array_aux,
 					   work)->map;
-	bpf_fd_array_map_clear(map, true);
+	bpf_fd_array_map_clear(map);
 	bpf_map_put(map);
 }
 
@@ -1157,7 +1189,7 @@ static struct bpf_event_entry *bpf_event_entry_gen(struct file *perf_file,
 {
 	struct bpf_event_entry *ee;
 
-	ee = kzalloc(sizeof(*ee), GFP_KERNEL);
+	ee = kzalloc(sizeof(*ee), GFP_ATOMIC);
 	if (ee) {
 		ee->event = perf_file->private_data;
 		ee->perf_file = perf_file;
@@ -1207,9 +1239,8 @@ err_out:
 	return ee;
 }
 
-static void perf_event_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void perf_event_fd_array_put_ptr(void *ptr)
 {
-	/* bpf_perf_event is freed after one RCU grace period */
 	bpf_event_entry_free_rcu(ptr);
 }
 
@@ -1227,7 +1258,7 @@ static void perf_event_fd_array_release(struct bpf_map *map,
 	for (i = 0; i < array->map.max_entries; i++) {
 		ee = READ_ONCE(array->ptrs[i]);
 		if (ee && ee->map_file == map_file)
-			__fd_array_map_delete_elem(map, &i, true);
+			fd_array_map_delete_elem(map, &i);
 	}
 	rcu_read_unlock();
 }
@@ -1235,7 +1266,7 @@ static void perf_event_fd_array_release(struct bpf_map *map,
 static void perf_event_fd_array_map_free(struct bpf_map *map)
 {
 	if (map->map_flags & BPF_F_PRESERVE_ELEMS)
-		bpf_fd_array_map_clear(map, false);
+		bpf_fd_array_map_clear(map);
 	fd_array_map_free(map);
 }
 
@@ -1263,7 +1294,7 @@ static void *cgroup_fd_array_get_ptr(struct bpf_map *map,
 	return cgroup_get_from_fd(fd);
 }
 
-static void cgroup_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void cgroup_fd_array_put_ptr(void *ptr)
 {
 	/* cgroup_put free cgrp after a rcu grace period */
 	cgroup_put(ptr);
@@ -1271,7 +1302,7 @@ static void cgroup_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_de
 
 static void cgroup_fd_array_free(struct bpf_map *map)
 {
-	bpf_fd_array_map_clear(map, false);
+	bpf_fd_array_map_clear(map);
 	fd_array_map_free(map);
 }
 
@@ -1316,7 +1347,7 @@ static void array_of_map_free(struct bpf_map *map)
 	 * is protected by fdget/fdput.
 	 */
 	bpf_map_meta_free(map->inner_map_meta);
-	bpf_fd_array_map_clear(map, false);
+	bpf_fd_array_map_clear(map);
 	fd_array_map_free(map);
 }
 

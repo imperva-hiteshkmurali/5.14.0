@@ -1,3 +1,2 @@
-#5-
-0x65d1cad8	vfs_readlink	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xf05a8e23	vfs_readlink	vmlinux	EXPORT_SYMBOL	

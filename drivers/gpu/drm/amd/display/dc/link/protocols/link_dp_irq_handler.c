@@ -38,8 +38,6 @@
 #include "link/link_dpms.h"
 #include "dm_helpers.h"
 
-#define DC_LOGGER \
-	link->ctx->logger
 #define DC_LOGGER_INIT(logger)
 
 bool dp_parse_link_loss_status(
@@ -184,14 +182,14 @@ static bool handle_hpd_irq_psr_sink(struct dc_link *link)
 	return false;
 }
 
-static void handle_hpd_irq_replay_sink(struct dc_link *link)
+static bool handle_hpd_irq_replay_sink(struct dc_link *link)
 {
 	union dpcd_replay_configuration replay_configuration;
 	/*AMD Replay version reuse DP_PSR_ERROR_STATUS for REPLAY_ERROR status.*/
 	union psr_error_status replay_error_status;
 
 	if (!link->replay_settings.replay_feature_enabled)
-		return;
+		return false;
 
 	dm_helpers_dp_read_dpcd(
 		link->ctx,
@@ -219,12 +217,6 @@ static void handle_hpd_irq_replay_sink(struct dc_link *link)
 		link->replay_settings.config.replay_error_status.bits.STATE_TRANSITION_ERROR) {
 		bool allow_active;
 
-		if (link->replay_settings.config.replay_error_status.bits.DESYNC_ERROR)
-			link->replay_settings.config.received_desync_error_hpd = 1;
-
-		if (link->replay_settings.config.force_disable_desync_error_check)
-			return;
-
 		/* Acknowledge and clear configuration bits */
 		dm_helpers_dp_write_dpcd(
 			link->ctx,
@@ -249,6 +241,7 @@ static void handle_hpd_irq_replay_sink(struct dc_link *link)
 			edp_set_replay_allow_active(link, &allow_active, true, false, NULL);
 		}
 	}
+	return true;
 }
 
 void dp_handle_link_loss(struct dc_link *link)
@@ -265,7 +258,7 @@ void dp_handle_link_loss(struct dc_link *link)
 
 	for (i = count - 1; i >= 0; i--) {
 		// Always use max settings here for DP 1.4a LL Compliance CTS
-		if (link->skip_fallback_on_link_loss) {
+		if (link->is_automated) {
 			pipes[i]->link_config.dp_link_settings.lane_count =
 					link->verified_link_cap.lane_count;
 			pipes[i]->link_config.dp_link_settings.link_rate =
@@ -404,9 +397,7 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 
 	if (hpd_irq_dpcd_data.bytes.device_service_irq.bits.AUTOMATED_TEST) {
 		// Workaround for DP 1.4a LL Compliance CTS as USB4 has to share encoders unlike DP and USBC
-		if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA)
-			link->skip_fallback_on_link_loss = true;
-
+		link->is_automated = true;
 		device_service_clear.bits.AUTOMATED_TEST = 1;
 		core_link_write_dpcd(
 			link,
@@ -431,7 +422,9 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 		/* PSR-related error was detected and handled */
 		return true;
 
-	handle_hpd_irq_replay_sink(link);
+	if (handle_hpd_irq_replay_sink(link))
+		/* Replay-related error was detected and handled */
+		return true;
 
 	/* If PSR-related error handled, Main link may be off,
 	 * so do not handle as a normal sink status change interrupt.

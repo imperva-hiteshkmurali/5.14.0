@@ -1,3 +1,2 @@
-#5-
-0x17287f75	__netif_napi_del	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0x4b7b31b1	__netif_napi_del	vmlinux	EXPORT_SYMBOL	

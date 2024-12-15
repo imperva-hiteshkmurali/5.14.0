@@ -257,11 +257,11 @@ repeat:
 		if (unlikely(!PageDirty(page)))
 			NILFS_PAGE_BUG(page, "inconsistent dirty state");
 
-		dfolio = filemap_grab_folio(dmap, folio->index);
-		if (unlikely(IS_ERR(dfolio))) {
+		dpage = grab_cache_page(dmap, page->index);
+		if (unlikely(!dpage)) {
 			/* No empty page is added to the page cache */
-			folio_unlock(folio);
-			err = PTR_ERR(dfolio);
+			err = -ENOMEM;
+			unlock_page(page);
 			break;
 		}
 		if (unlikely(!page_has_buffers(page)))
@@ -308,15 +308,15 @@ repeat:
 		struct page *page = pvec.pages[i], *dpage;
 		pgoff_t offset = page->index;
 
-		folio_lock(folio);
-		dfolio = filemap_lock_folio(dmap, index);
-		if (!IS_ERR(dfolio)) {
-			/* overwrite existing folio in the destination cache */
-			WARN_ON(folio_test_dirty(dfolio));
-			nilfs_copy_page(&dfolio->page, &folio->page, 0);
-			folio_unlock(dfolio);
-			folio_put(dfolio);
-			/* Do we not need to remove folio from smap here? */
+		lock_page(page);
+		dpage = find_lock_page(dmap, offset);
+		if (dpage) {
+			/* overwrite existing page in the destination cache */
+			WARN_ON(PageDirty(dpage));
+			nilfs_copy_page(dpage, page, 0);
+			unlock_page(dpage);
+			put_page(dpage);
+			/* Do we not need to remove page from smap here? */
 		} else {
 			struct page *p;
 

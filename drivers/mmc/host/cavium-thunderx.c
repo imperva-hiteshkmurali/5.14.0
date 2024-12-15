@@ -14,7 +14,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
-#include <linux/platform_device.h>
 #include <linux/pci.h>
 #include "cavium.h"
 
@@ -143,10 +142,8 @@ static int thunder_mmc_probe(struct pci_dev *pdev,
 				continue;
 
 			ret = cvm_mmc_of_slot_probe(&host->slot_pdev[i]->dev, host);
-			if (ret) {
-				of_node_put(child_node);
+			if (ret)
 				goto error;
-			}
 		}
 		i++;
 	}

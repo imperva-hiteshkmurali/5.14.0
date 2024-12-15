@@ -5,7 +5,6 @@
  */
 
 #include <linux/gpio/consumer.h>
-#include <linux/media-bus-format.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -73,6 +72,12 @@ static void lvds_codec_disable(struct drm_bridge *bridge)
 			"Failed to disable regulator \"vcc\": %d\n", ret);
 }
 
+static const struct drm_bridge_funcs funcs = {
+	.attach = lvds_codec_attach,
+	.enable = lvds_codec_enable,
+	.disable = lvds_codec_disable,
+};
+
 #define MAX_INPUT_SEL_FORMATS 1
 static u32 *
 lvds_codec_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
@@ -98,7 +103,7 @@ lvds_codec_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
 	return input_fmts;
 }
 
-static const struct drm_bridge_funcs funcs = {
+static const struct drm_bridge_funcs funcs_decoder = {
 	.attach = lvds_codec_attach,
 	.enable = lvds_codec_enable,
 	.disable = lvds_codec_disable,
@@ -180,9 +185,8 @@ static int lvds_codec_probe(struct platform_device *pdev)
 			return ret;
 		} else {
 			lvds_codec->bus_format = ret;
+			lvds_codec->bridge.funcs = &funcs_decoder;
 		}
-	} else {
-		lvds_codec->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
 	}
 
 	/*

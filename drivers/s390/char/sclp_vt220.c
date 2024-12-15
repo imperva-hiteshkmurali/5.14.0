@@ -463,8 +463,8 @@ out:
  * user space or kernel space.  This routine will return the
  * number of characters actually accepted for writing.
  */
-static ssize_t
-sclp_vt220_write(struct tty_struct *tty, const u8 *buf, size_t count)
+static int
+sclp_vt220_write(struct tty_struct *tty, const unsigned char *buf, int count)
 {
 	return __sclp_vt220_write(buf, count, 1, 0, 1);
 }
@@ -580,7 +580,7 @@ sclp_vt220_close(struct tty_struct *tty, struct file *filp)
  * done stuffing characters into the driver.
  */
 static int
-sclp_vt220_put_char(struct tty_struct *tty, u8 ch)
+sclp_vt220_put_char(struct tty_struct *tty, unsigned char ch)
 {
 	return __sclp_vt220_write(&ch, 1, 0, 0, 1);
 }
@@ -763,7 +763,7 @@ out_reg:
 out_init:
 	__sclp_vt220_cleanup();
 out_driver:
-	tty_driver_kref_put(driver);
+	put_tty_driver(driver);
 	return rc;
 }
 __initcall(sclp_vt220_tty_init);

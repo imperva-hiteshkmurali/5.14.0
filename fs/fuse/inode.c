@@ -448,14 +448,8 @@ static void fuse_umount_begin(struct super_block *sb)
 {
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
-	if (fc->no_force_umount)
-		return;
-
-	fuse_abort_conn(fc);
-
-	// Only retire block-device-based superblocks.
-	if (sb->s_bdev != NULL)
-		retire_super(sb);
+	if (!fc->no_force_umount)
+		fuse_abort_conn(fc);
 }
 
 static void fuse_send_destroy(struct fuse_mount *fm)

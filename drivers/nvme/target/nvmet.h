@@ -58,7 +58,6 @@
 
 struct nvmet_ns {
 	struct percpu_ref	ref;
-	struct file		*bdev_file;
 	struct block_device	*bdev;
 	struct file		*file;
 	bool			readonly;
@@ -159,11 +158,9 @@ struct nvmet_port {
 	struct config_group		ana_groups_group;
 	struct nvmet_ana_group		ana_default_group;
 	enum nvme_ana_state		*ana_state;
-	struct key			*keyring;
 	void				*priv;
 	bool				enabled;
 	int				inline_data_size;
-	int				max_queue_size;
 	const struct nvmet_fabrics_ops	*tr_ops;
 	bool				pi_enable;
 };
@@ -179,16 +176,6 @@ static inline struct nvmet_port *ana_groups_to_port(
 {
 	return container_of(to_config_group(item), struct nvmet_port,
 			ana_groups_group);
-}
-
-static inline u8 nvmet_port_disc_addr_treq_secure_channel(struct nvmet_port *port)
-{
-	return (port->disc_addr.treq & NVME_TREQ_SECURE_CHANNEL_MASK);
-}
-
-static inline bool nvmet_port_secure_channel_required(struct nvmet_port *port)
-{
-    return nvmet_port_disc_addr_treq_secure_channel(port) == NVMF_TREQ_REQUIRED;
 }
 
 struct nvmet_ctrl {
@@ -544,10 +531,9 @@ void nvmet_subsys_disc_changed(struct nvmet_subsys *subsys,
 void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 		u8 event_info, u8 log_page);
 
-#define NVMET_MIN_QUEUE_SIZE	16
-#define NVMET_MAX_QUEUE_SIZE	1024
+#define NVMET_QUEUE_SIZE	1024
 #define NVMET_NR_QUEUES		128
-#define NVMET_MAX_CMD(ctrl)	(NVME_CAP_MQES(ctrl->cap) + 1)
+#define NVMET_MAX_CMD		NVMET_QUEUE_SIZE
 
 /*
  * Nice round number that makes a list of nsids fit into a page.

@@ -429,6 +429,7 @@ static struct fb_info *lxfb_init_fbinfo(struct device *dev)
 	info->var.vmode	= FB_VMODE_NONINTERLACED;
 
 	info->fbops		= &lxfb_ops;
+	info->flags		= FBINFO_DEFAULT;
 	info->node		= -1;
 
 	info->pseudo_palette	= (void *)par + sizeof(struct lxfb_par);
@@ -646,12 +647,7 @@ static int __init lxfb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
-#endif
 
-	if (fb_modesetting_disabled("lxfb"))
-		return -ENODEV;
-
-#ifndef MODULE
 	if (fb_get_options("lxfb", &option))
 		return -ENODEV;
 

@@ -248,8 +248,6 @@ int main(int argc, char *argv[])
 	int stage = 1, r;
 	struct ucall uc;
 
-	TEST_REQUIRE(kvm_has_cap(KVM_CAP_HYPERV_SEND_IPI));
-
 	vm = vm_create_with_one_vcpu(&vcpu[0], sender_guest_code);
 
 	/* Hypercall input/output */
@@ -289,7 +287,7 @@ int main(int argc, char *argv[])
 		switch (get_ucall(vcpu[0], &uc)) {
 		case UCALL_SYNC:
 			TEST_ASSERT(uc.args[1] == stage,
-				    "Unexpected stage: %ld (%d expected)",
+				    "Unexpected stage: %ld (%d expected)\n",
 				    uc.args[1], stage);
 			break;
 		case UCALL_DONE:

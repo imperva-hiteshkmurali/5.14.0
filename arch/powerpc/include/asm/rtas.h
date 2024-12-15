@@ -3,7 +3,6 @@
 #define _POWERPC_RTAS_H
 #ifdef __KERNEL__
 
-#include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <asm/page.h>
 #include <asm/rtas-types.h>
@@ -334,8 +333,6 @@ extern char rtas_data_buf[RTAS_DATA_BUF_SIZE];
 
 /* RMO buffer reserved for user-space RTAS use */
 extern unsigned long rtas_rmo_buf;
-
-extern struct mutex rtas_ibm_get_vpd_lock;
 
 #define GLOBAL_INTERRUPT_QUEUE 9005
 

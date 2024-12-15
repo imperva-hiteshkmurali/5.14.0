@@ -125,7 +125,8 @@ static void goldfish_tty_rw(struct goldfish_tty *qtty,
 	}
 }
 
-static void goldfish_tty_do_write(int line, const u8 *buf, unsigned int count)
+static void goldfish_tty_do_write(int line, const char *buf,
+				  unsigned int count)
 {
 	struct goldfish_tty *qtty = &goldfish_ttys[line];
 	unsigned long address = (unsigned long)(void *)buf;
@@ -185,8 +186,8 @@ static void goldfish_tty_hangup(struct tty_struct *tty)
 	tty_port_hangup(tty->port);
 }
 
-static ssize_t goldfish_tty_write(struct tty_struct *tty, const u8 *buf,
-				  size_t count)
+static int goldfish_tty_write(struct tty_struct *tty, const unsigned char *buf,
+								int count)
 {
 	goldfish_tty_do_write(tty->index, buf, count);
 	return count;
@@ -273,7 +274,7 @@ static int goldfish_tty_create_driver(void)
 	return 0;
 
 err_tty_register_driver_failed:
-	tty_driver_kref_put(tty);
+	put_tty_driver(tty);
 err_tty_alloc_driver_failed:
 	kfree(goldfish_ttys);
 	goldfish_ttys = NULL;
@@ -284,7 +285,7 @@ err_alloc_goldfish_ttys_failed:
 static void goldfish_tty_delete_driver(void)
 {
 	tty_unregister_driver(goldfish_tty_driver);
-	tty_driver_kref_put(goldfish_tty_driver);
+	put_tty_driver(goldfish_tty_driver);
 	goldfish_tty_driver = NULL;
 	kfree(goldfish_ttys);
 	goldfish_ttys = NULL;
@@ -297,7 +298,7 @@ static int goldfish_tty_probe(struct platform_device *pdev)
 	struct resource *r;
 	struct device *ttydev;
 	void __iomem *base;
-	int irq;
+	u32 irq;
 	unsigned int line;
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -312,11 +313,13 @@ static int goldfish_tty_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		ret = irq;
+	r = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!r) {
+		pr_err("goldfish_tty: No IRQ resource available!\n");
 		goto err_unmap;
 	}
+
+	irq = r->start;
 
 	mutex_lock(&goldfish_tty_lock);
 
@@ -404,7 +407,6 @@ static int goldfish_tty_probe(struct platform_device *pdev)
 err_tty_register_device_failed:
 	free_irq(irq, qtty);
 err_dec_line_count:
-	tty_port_destroy(&qtty->port);
 	goldfish_tty_current_line_count--;
 	if (goldfish_tty_current_line_count == 0)
 		goldfish_tty_delete_driver();
@@ -425,8 +427,7 @@ static int goldfish_tty_remove(struct platform_device *pdev)
 	tty_unregister_device(goldfish_tty_driver, qtty->console.index);
 	iounmap(qtty->base);
 	qtty->base = NULL;
-	free_irq(qtty->irq, qtty);
-	tty_port_destroy(&qtty->port);
+	free_irq(qtty->irq, pdev);
 	goldfish_tty_current_line_count--;
 	if (goldfish_tty_current_line_count == 0)
 		goldfish_tty_delete_driver();

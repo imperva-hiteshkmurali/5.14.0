@@ -323,13 +323,9 @@ int __init linux_main(int argc, char **argv)
 		add_arg(DEFAULT_COMMAND_LINE_CONSOLE);
 
 	host_task_size = os_get_top_address();
-	/* reserve a few pages for the stubs (taking care of data alignment) */
-	/* align the data portion */
-	BUILD_BUG_ON(!is_power_of_2(STUB_DATA_PAGES));
-	stub_start = (host_task_size - 1) & ~(STUB_DATA_PAGES * PAGE_SIZE - 1);
-	/* another page for the code portion */
-	stub_start -= PAGE_SIZE;
-	host_task_size = stub_start;
+	/* reserve two pages for the stubs */
+	host_task_size -= 2 * PAGE_SIZE;
+	stub_start = host_task_size;
 
 	/*
 	 * TASK_SIZE needs to be PGDIR_SIZE aligned or else exit_mmap craps
@@ -425,7 +421,7 @@ void __init check_bugs(void)
 	os_check_bugs();
 }
 
-void apply_seal_endbr(s32 *start, s32 *end)
+void apply_ibt_endbr(s32 *start, s32 *end)
 {
 }
 
@@ -434,11 +430,6 @@ void apply_retpolines(s32 *start, s32 *end)
 }
 
 void apply_returns(s32 *start, s32 *end)
-{
-}
-
-void apply_fineibt(s32 *start_retpoline, s32 *end_retpoline,
-		   s32 *start_cfi, s32 *end_cfi)
 {
 }
 

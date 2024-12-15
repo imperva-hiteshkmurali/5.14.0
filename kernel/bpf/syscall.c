@@ -159,13 +159,9 @@ static u32 bpf_map_value_size(const struct bpf_map *map)
 
 static void maybe_wait_bpf_programs(struct bpf_map *map)
 {
-	/* Wait for any running non-sleepable BPF programs to complete so that
-	 * userspace, when we return to it, knows that all non-sleepable
-	 * programs that could be running use the new map value. For sleepable
-	 * BPF programs, synchronize_rcu_tasks_trace() should be used to wait
-	 * for the completions of these programs, but considering the waiting
-	 * time can be very long and userspace may think it will hang forever,
-	 * so don't handle sleepable BPF programs now.
+	/* Wait for any running BPF programs to complete so that
+	 * userspace, when we return to it, knows that all programs
+	 * that could be running use the new map value.
 	 */
 	if (map->map_type == BPF_MAP_TYPE_HASH_OF_MAPS ||
 	    map->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
@@ -201,11 +197,15 @@ static int bpf_map_update_value(struct bpf_map *map, struct file *map_file,
 		err = bpf_percpu_cgroup_storage_update(map, key, value,
 						       flags);
 	} else if (IS_FD_ARRAY(map)) {
+		rcu_read_lock();
 		err = bpf_fd_array_map_update_elem(map, map_file, key, value,
 						   flags);
+		rcu_read_unlock();
 	} else if (map->map_type == BPF_MAP_TYPE_HASH_OF_MAPS) {
+		rcu_read_lock();
 		err = bpf_fd_htab_map_update_elem(map, map_file, key, value,
 						  flags);
+		rcu_read_unlock();
 	} else if (map->map_type == BPF_MAP_TYPE_REUSEPORT_SOCKARRAY) {
 		/* rcu_read_lock() is not needed */
 		err = bpf_fd_reuseport_array_update_elem(map, key, value,
@@ -220,6 +220,7 @@ static int bpf_map_update_value(struct bpf_map *map, struct file *map_file,
 		rcu_read_unlock();
 	}
 	bpf_enable_instrumentation();
+	maybe_wait_bpf_programs(map);
 
 	return err;
 }
@@ -280,6 +281,7 @@ static int bpf_map_copy_value(struct bpf_map *map, void *key, void *value,
 	}
 
 	bpf_enable_instrumentation();
+	maybe_wait_bpf_programs(map);
 
 	return err;
 }
@@ -530,7 +532,6 @@ void btf_record_free(struct btf_record *rec)
 		switch (rec->fields[i].type) {
 		case BPF_KPTR_UNREF:
 		case BPF_KPTR_REF:
-		case BPF_KPTR_PERCPU:
 			if (rec->fields[i].kptr.module)
 				module_put(rec->fields[i].kptr.module);
 			btf_put(rec->fields[i].kptr.btf);
@@ -577,7 +578,6 @@ struct btf_record *btf_record_dup(const struct btf_record *rec)
 		switch (fields[i].type) {
 		case BPF_KPTR_UNREF:
 		case BPF_KPTR_REF:
-		case BPF_KPTR_PERCPU:
 			btf_get(fields[i].kptr.btf);
 			if (fields[i].kptr.module && !try_module_get(fields[i].kptr.module)) {
 				ret = -ENXIO;
@@ -642,6 +642,8 @@ void bpf_obj_free_timer(const struct btf_record *rec, void *obj)
 	bpf_timer_cancel_and_free(obj + rec->timer_off);
 }
 
+extern void __bpf_obj_drop_impl(void *p, const struct btf_record *rec);
+
 void bpf_obj_free_fields(const struct btf_record *rec, void *obj)
 {
 	const struct btf_field *fields;
@@ -666,7 +668,6 @@ void bpf_obj_free_fields(const struct btf_record *rec, void *obj)
 			WRITE_ONCE(*(u64 *)field_ptr, 0);
 			break;
 		case BPF_KPTR_REF:
-		case BPF_KPTR_PERCPU:
 			xchgd_field = (void *)xchg((unsigned long *)field_ptr, 0);
 			if (!xchgd_field)
 				break;
@@ -676,8 +677,8 @@ void bpf_obj_free_fields(const struct btf_record *rec, void *obj)
 									   field->kptr.btf_id);
 				migrate_disable();
 				__bpf_obj_drop_impl(xchgd_field, pointee_struct_meta ?
-								 pointee_struct_meta->record : NULL,
-								 fields[i].type == BPF_KPTR_PERCPU);
+								 pointee_struct_meta->record :
+								 NULL);
 				migrate_enable();
 			} else {
 				field->kptr.dtor(xchgd_field);
@@ -709,7 +710,6 @@ static void bpf_map_free_deferred(struct work_struct *work)
 {
 	struct bpf_map *map = container_of(work, struct bpf_map, work);
 	struct btf_record *rec = map->record;
-	struct btf *btf = map->btf;
 
 	security_bpf_map_free(map);
 	bpf_map_release_memcg(map);
@@ -725,10 +725,6 @@ static void bpf_map_free_deferred(struct work_struct *work)
 	 * template bpf_map struct used during verification.
 	 */
 	btf_record_free(rec);
-	/* Delay freeing of btf for maps, as map_free callback may need
-	 * struct_meta info which will be freed with btf_put().
-	 */
-	btf_put(btf);
 }
 
 static void bpf_map_put_uref(struct bpf_map *map)
@@ -739,28 +735,6 @@ static void bpf_map_put_uref(struct bpf_map *map)
 	}
 }
 
-static void bpf_map_free_in_work(struct bpf_map *map)
-{
-	INIT_WORK(&map->work, bpf_map_free_deferred);
-	/* Avoid spawning kworkers, since they all might contend
-	 * for the same mutex like slab_mutex.
-	 */
-	queue_work(system_unbound_wq, &map->work);
-}
-
-static void bpf_map_free_rcu_gp(struct rcu_head *rcu)
-{
-	bpf_map_free_in_work(container_of(rcu, struct bpf_map, rcu));
-}
-
-static void bpf_map_free_mult_rcu_gp(struct rcu_head *rcu)
-{
-	if (rcu_trace_implies_rcu_gp())
-		bpf_map_free_rcu_gp(rcu);
-	else
-		call_rcu(rcu, bpf_map_free_rcu_gp);
-}
-
 /* decrement map refcnt and schedule it for freeing via workqueue
  * (underlying map implementation ops->map_free() might sleep)
  */
@@ -769,14 +743,12 @@ void bpf_map_put(struct bpf_map *map)
 	if (atomic64_dec_and_test(&map->refcnt)) {
 		/* bpf_map_free_id() must be called first */
 		bpf_map_free_id(map);
-
-		WARN_ON_ONCE(atomic64_read(&map->sleepable_refcnt));
-		if (READ_ONCE(map->free_after_mult_rcu_gp))
-			call_rcu_tasks_trace(&map->rcu, bpf_map_free_mult_rcu_gp);
-		else if (READ_ONCE(map->free_after_rcu_gp))
-			call_rcu(&map->rcu, bpf_map_free_rcu_gp);
-		else
-			bpf_map_free_in_work(map);
+		btf_put(map->btf);
+		INIT_WORK(&map->work, bpf_map_free_deferred);
+		/* Avoid spawning kworkers, since they all might contend
+		 * for the same mutex like slab_mutex.
+		 */
+		queue_work(system_unbound_wq, &map->work);
 	}
 }
 EXPORT_SYMBOL_GPL(bpf_map_put);
@@ -928,10 +900,10 @@ static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 	/* set default open/close callbacks */
 	vma->vm_ops = &bpf_map_default_vmops;
 	vma->vm_private_data = map;
-	vm_flags_clear(vma, VM_MAYEXEC);
+	vma->vm_flags &= ~VM_MAYEXEC;
 	if (!(vma->vm_flags & VM_WRITE))
 		/* disallow re-mapping with PROT_WRITE */
-		vm_flags_clear(vma, VM_MAYWRITE);
+		vma->vm_flags &= ~VM_MAYWRITE;
 
 	err = map->ops->map_mmap(map, vma);
 	if (err)
@@ -1091,7 +1063,6 @@ static int map_check_btf(struct bpf_map *map, const struct btf *btf,
 				break;
 			case BPF_KPTR_UNREF:
 			case BPF_KPTR_REF:
-			case BPF_KPTR_PERCPU:
 			case BPF_REFCOUNT:
 				if (map->map_type != BPF_MAP_TYPE_HASH &&
 				    map->map_type != BPF_MAP_TYPE_PERCPU_HASH &&
@@ -1568,8 +1539,6 @@ static int map_update_elem(union bpf_attr *attr, bpfptr_t uattr)
 	}
 
 	err = bpf_map_update_value(map, f.file, key, value, attr->flags);
-	if (!err)
-		maybe_wait_bpf_programs(map);
 
 	kvfree(value);
 free_key:
@@ -1625,8 +1594,7 @@ static int map_delete_elem(union bpf_attr *attr, bpfptr_t uattr)
 	err = map->ops->map_delete_elem(map, key);
 	rcu_read_unlock();
 	bpf_enable_instrumentation();
-	if (!err)
-		maybe_wait_bpf_programs(map);
+	maybe_wait_bpf_programs(map);
 out:
 	kvfree(key);
 err_put:
@@ -1723,9 +1691,6 @@ int generic_map_delete_batch(struct bpf_map *map,
 	if (!max_count)
 		return 0;
 
-	if (put_user(0, &uattr->batch.count))
-		return -EFAULT;
-
 	key = kvmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
 	if (!key)
 		return -ENOMEM;
@@ -1755,6 +1720,7 @@ int generic_map_delete_batch(struct bpf_map *map,
 
 	kvfree(key);
 
+	maybe_wait_bpf_programs(map);
 	return err;
 }
 
@@ -1781,9 +1747,6 @@ int generic_map_update_batch(struct bpf_map *map, struct file *map_file,
 	max_count = attr->batch.count;
 	if (!max_count)
 		return 0;
-
-	if (put_user(0, &uattr->batch.count))
-		return -EFAULT;
 
 	key = kvmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
 	if (!key)
@@ -1815,7 +1778,6 @@ int generic_map_update_batch(struct bpf_map *map, struct file *map_file,
 
 	kvfree(value);
 	kvfree(key);
-
 	return err;
 }
 
@@ -2621,8 +2583,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 				 BPF_F_SLEEPABLE |
 				 BPF_F_TEST_RND_HI32 |
 				 BPF_F_XDP_HAS_FRAGS |
-				 BPF_F_XDP_DEV_BOUND_ONLY |
-				 BPF_F_TEST_REG_INVARIANTS))
+				 BPF_F_XDP_DEV_BOUND_ONLY))
 		return -EINVAL;
 
 	if (!IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) &&
@@ -2750,22 +2711,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 			goto free_prog_sec;
 	}
 
-	/*
-	 * Bookkeeping for managing the program attachment chain.
-	 *
-	 * It might be tempting to set attach_tracing_prog flag at the attachment
-	 * time, but this will not prevent from loading bunch of tracing prog
-	 * first, then attach them one to another.
-	 *
-	 * The flag attach_tracing_prog is set for the whole program lifecycle, and
-	 * doesn't have to be cleared in bpf_tracing_link_release, since tracing
-	 * programs cannot change attachment target.
-	 */
-	if (type == BPF_PROG_TYPE_TRACING && dst_prog &&
-	    dst_prog->type == BPF_PROG_TYPE_TRACING) {
-		prog->aux->attach_tracing_prog = true;
-	}
-
 	/* find program type: socket_filter vs tracing_filter */
 	err = find_prog_type(type, prog);
 	if (err < 0)
@@ -2818,7 +2763,7 @@ free_used_maps:
 	 * period before we can tear down JIT memory since symbols
 	 * are already exposed under kallsyms.
 	 */
-	__bpf_prog_put_noref(prog, prog->aux->real_func_cnt);
+	__bpf_prog_put_noref(prog, prog->aux->func_cnt);
 	return err;
 free_prog_sec:
 	free_uid(prog->aux->user);
@@ -3199,12 +3144,7 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 	}
 
 	if (tgt_prog_fd) {
-		/*
-		 * For now we only allow new targets for BPF_PROG_TYPE_EXT. If this
-		 * part would be changed to implement the same for
-		 * BPF_PROG_TYPE_TRACING, do not forget to update the way how
-		 * attach_tracing_prog flag is set.
-		 */
+		/* For now we only allow new targets for BPF_PROG_TYPE_EXT */
 		if (prog->type != BPF_PROG_TYPE_EXT) {
 			err = -EINVAL;
 			goto out_put_prog;
@@ -3249,10 +3189,6 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 	 *
 	 * - if prog->aux->dst_trampoline and tgt_prog is NULL, the program
 	 *   was detached and is going for re-attachment.
-	 *
-	 * - if prog->aux->dst_trampoline is NULL and tgt_prog and prog->aux->attach_btf
-	 *   are NULL, then program was already attached and user did not provide
-	 *   tgt_prog_fd so we have no way to find out or create trampoline
 	 */
 	if (!prog->aux->dst_trampoline && !tgt_prog) {
 		/*
@@ -3263,11 +3199,6 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 		 */
 		if (prog->type != BPF_PROG_TYPE_TRACING &&
 		    prog->type != BPF_PROG_TYPE_LSM) {
-			err = -EINVAL;
-			goto out_unlock;
-		}
-		/* We can allow re-attach only if we have valid attach_btf. */
-		if (!prog->aux->attach_btf) {
 			err = -EINVAL;
 			goto out_unlock;
 		}
@@ -3457,7 +3388,7 @@ static void bpf_perf_link_dealloc(struct bpf_link *link)
 static int bpf_perf_link_fill_common(const struct perf_event *event,
 				     char __user *uname, u32 ulen,
 				     u64 *probe_offset, u64 *probe_addr,
-				     u32 *fd_type, unsigned long *missed)
+				     u32 *fd_type)
 {
 	const char *buf;
 	u32 prog_id;
@@ -3468,7 +3399,7 @@ static int bpf_perf_link_fill_common(const struct perf_event *event,
 		return -EINVAL;
 
 	err = bpf_get_perf_event_info(event, &prog_id, fd_type, &buf,
-				      probe_offset, probe_addr, missed);
+				      probe_offset, probe_addr);
 	if (err)
 		return err;
 	if (!uname)
@@ -3491,7 +3422,6 @@ static int bpf_perf_link_fill_common(const struct perf_event *event,
 static int bpf_perf_link_fill_kprobe(const struct perf_event *event,
 				     struct bpf_link_info *info)
 {
-	unsigned long missed;
 	char __user *uname;
 	u64 addr, offset;
 	u32 ulen, type;
@@ -3500,7 +3430,7 @@ static int bpf_perf_link_fill_kprobe(const struct perf_event *event,
 	uname = u64_to_user_ptr(info->perf_event.kprobe.func_name);
 	ulen = info->perf_event.kprobe.name_len;
 	err = bpf_perf_link_fill_common(event, uname, ulen, &offset, &addr,
-					&type, &missed);
+					&type);
 	if (err)
 		return err;
 	if (type == BPF_FD_TYPE_KRETPROBE)
@@ -3509,7 +3439,6 @@ static int bpf_perf_link_fill_kprobe(const struct perf_event *event,
 		info->perf_event.type = BPF_PERF_EVENT_KPROBE;
 
 	info->perf_event.kprobe.offset = offset;
-	info->perf_event.kprobe.missed = missed;
 	if (!kallsyms_show_value(current_cred()))
 		addr = 0;
 	info->perf_event.kprobe.addr = addr;
@@ -3529,7 +3458,7 @@ static int bpf_perf_link_fill_uprobe(const struct perf_event *event,
 	uname = u64_to_user_ptr(info->perf_event.uprobe.file_name);
 	ulen = info->perf_event.uprobe.name_len;
 	err = bpf_perf_link_fill_common(event, uname, ulen, &offset, &addr,
-					&type, NULL);
+					&type);
 	if (err)
 		return err;
 
@@ -3565,7 +3494,7 @@ static int bpf_perf_link_fill_tracepoint(const struct perf_event *event,
 	uname = u64_to_user_ptr(info->perf_event.tracepoint.tp_name);
 	ulen = info->perf_event.tracepoint.name_len;
 	info->perf_event.type = BPF_PERF_EVENT_TRACEPOINT;
-	return bpf_perf_link_fill_common(event, uname, ulen, NULL, NULL, NULL, NULL);
+	return bpf_perf_link_fill_common(event, uname, ulen, NULL, NULL, NULL);
 }
 
 static int bpf_perf_link_fill_perf_event(const struct perf_event *event,
@@ -4907,7 +4836,7 @@ static int bpf_task_fd_query(const union bpf_attr *attr,
 
 		err = bpf_get_perf_event_info(event, &prog_id, &fd_type,
 					      &buf, &probe_offset,
-					      &probe_addr, NULL);
+					      &probe_addr);
 		if (!err)
 			err = bpf_task_fd_query_copy(attr, uattr, prog_id,
 						     fd_type, buf,
@@ -4973,10 +4902,8 @@ static int bpf_map_do_batch(const union bpf_attr *attr,
 	else
 		BPF_DO_BATCH(map->ops->map_delete_batch, map, attr, uattr);
 err_put:
-	if (has_write) {
-		maybe_wait_bpf_programs(map);
+	if (has_write)
 		bpf_map_write_active_dec(map);
-	}
 	fdput(f);
 	return err;
 }
@@ -5374,11 +5301,6 @@ static int bpf_prog_bind_map(union bpf_attr *attr)
 		goto out_unlock;
 	}
 
-	/* The bpf program will not access the bpf map, but for the sake of
-	 * simplicity, increase sleepable_refcnt for sleepable program as well.
-	 */
-	if (prog->aux->sleepable)
-		atomic64_inc(&map->sleepable_refcnt);
 	memcpy(used_maps_new, used_maps_old,
 	       sizeof(used_maps_old[0]) * prog->aux->used_map_cnt);
 	used_maps_new[prog->aux->used_map_cnt] = map;

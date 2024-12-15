@@ -283,7 +283,7 @@ static int __mlx5e_add_vlan_rule(struct mlx5e_flow_steering *fs,
 	if (IS_ERR(*rule_p)) {
 		err = PTR_ERR(*rule_p);
 		*rule_p = NULL;
-		fs_err(fs, "add rule failed\n");
+		fs_err(fs, "%s: add rule failed\n", __func__);
 	}
 
 	return err;
@@ -395,7 +395,8 @@ int mlx5e_add_vlan_trap(struct mlx5e_flow_steering *fs, int trap_id, int tir_num
 	if (IS_ERR(rule)) {
 		err = PTR_ERR(rule);
 		fs->vlan->trap_rule = NULL;
-		fs_err(fs, "add VLAN trap rule failed, err %d\n", err);
+		fs_err(fs, "%s: add VLAN trap rule failed, err %d\n",
+		       __func__, err);
 		return err;
 	}
 	fs->vlan->trap_rule = rule;
@@ -420,7 +421,8 @@ int mlx5e_add_mac_trap(struct mlx5e_flow_steering *fs, int trap_id, int tir_num)
 	if (IS_ERR(rule)) {
 		err = PTR_ERR(rule);
 		fs->l2.trap_rule = NULL;
-		fs_err(fs, "add MAC trap rule failed, err %d\n", err);
+		fs_err(fs, "%s: add MAC trap rule failed, err %d\n",
+		       __func__, err);
 		return err;
 	}
 	fs->l2.trap_rule = rule;
@@ -761,7 +763,7 @@ static int mlx5e_add_promisc_rule(struct mlx5e_flow_steering *fs)
 	if (IS_ERR(*rule_p)) {
 		err = PTR_ERR(*rule_p);
 		*rule_p = NULL;
-		fs_err(fs, "add promiscuous rule failed\n");
+		fs_err(fs, "%s: add promiscuous rule failed\n", __func__);
 	}
 	kvfree(spec);
 	return err;
@@ -993,7 +995,7 @@ static int mlx5e_add_l2_flow_rule(struct mlx5e_flow_steering *fs,
 
 	ai->rule = mlx5_add_flow_rules(ft, spec, &flow_act, &dest, 1);
 	if (IS_ERR(ai->rule)) {
-		fs_err(fs, "add l2 rule(mac:%pM) failed\n", mv_dmac);
+		fs_err(fs, "%s: add l2 rule(mac:%pM) failed\n", __func__, mv_dmac);
 		err = PTR_ERR(ai->rule);
 		ai->rule = NULL;
 	}
@@ -1283,7 +1285,9 @@ static int mlx5e_create_inner_ttc_table(struct mlx5e_flow_steering *fs,
 	mlx5e_set_inner_ttc_params(fs, rx_res, &ttc_params);
 	fs->inner_ttc = mlx5_create_inner_ttc_table(fs->mdev,
 						    &ttc_params);
-	return PTR_ERR_OR_ZERO(fs->inner_ttc);
+	if (IS_ERR(fs->inner_ttc))
+		return PTR_ERR(fs->inner_ttc);
+	return 0;
 }
 
 int mlx5e_create_ttc_table(struct mlx5e_flow_steering *fs,
@@ -1293,7 +1297,9 @@ int mlx5e_create_ttc_table(struct mlx5e_flow_steering *fs,
 
 	mlx5e_set_ttc_params(fs, rx_res, &ttc_params, true);
 	fs->ttc = mlx5_create_ttc_table(fs->mdev, &ttc_params);
-	return PTR_ERR_OR_ZERO(fs->ttc);
+	if (IS_ERR(fs->ttc))
+		return PTR_ERR(fs->ttc);
+	return 0;
 }
 
 int mlx5e_create_flow_steering(struct mlx5e_flow_steering *fs,

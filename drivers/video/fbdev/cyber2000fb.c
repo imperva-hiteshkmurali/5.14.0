@@ -48,6 +48,7 @@
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
 
+
 #ifdef __arm__
 #include <asm/mach-types.h>
 #endif
@@ -225,6 +226,13 @@ cyber2000fb_copyarea(struct fb_info *info, const struct fb_copyarea *region)
 	cyber2000fb_writew(cmd, CO_REG_CMD_L, cfb);
 	cyber2000fb_writew(CO_CMD_H_FGSRCMAP | CO_CMD_H_BLITTER,
 			   CO_REG_CMD_H, cfb);
+}
+
+static void
+cyber2000fb_imageblit(struct fb_info *info, const struct fb_image *image)
+{
+	cfb_imageblit(info, image);
+	return;
 }
 
 static int cyber2000fb_sync(struct fb_info *info)
@@ -1054,7 +1062,6 @@ static int cyber2000fb_blank(int blank, struct fb_info *info)
 
 static const struct fb_ops cyber2000fb_ops = {
 	.owner		= THIS_MODULE,
-	__FB_DEFAULT_IOMEM_OPS_RDWR,
 	.fb_check_var	= cyber2000fb_check_var,
 	.fb_set_par	= cyber2000fb_set_par,
 	.fb_setcolreg	= cyber2000fb_setcolreg,
@@ -1062,9 +1069,8 @@ static const struct fb_ops cyber2000fb_ops = {
 	.fb_pan_display	= cyber2000fb_pan_display,
 	.fb_fillrect	= cyber2000fb_fillrect,
 	.fb_copyarea	= cyber2000fb_copyarea,
-	.fb_imageblit	= cfb_imageblit,
+	.fb_imageblit	= cyber2000fb_imageblit,
 	.fb_sync	= cyber2000fb_sync,
-	__FB_DEFAULT_IOMEM_OPS_MMAP,
 };
 
 /*
@@ -1129,7 +1135,7 @@ int cyber2000fb_attach(struct cyberpro_info *info, int idx)
 		info->fb_size	      = int_cfb_info->fb.fix.smem_len;
 		info->info	      = int_cfb_info;
 
-		strscpy(info->dev_name, int_cfb_info->fb.fix.id,
+		strlcpy(info->dev_name, int_cfb_info->fb.fix.id,
 			sizeof(info->dev_name));
 	}
 
@@ -1224,9 +1230,10 @@ static int cyber2000fb_ddc_getsda(void *data)
 
 static int cyber2000fb_setup_ddc_bus(struct cfb_info *cfb)
 {
-	strscpy(cfb->ddc_adapter.name, cfb->fb.fix.id,
+	strlcpy(cfb->ddc_adapter.name, cfb->fb.fix.id,
 		sizeof(cfb->ddc_adapter.name));
 	cfb->ddc_adapter.owner		= THIS_MODULE;
+	cfb->ddc_adapter.class		= I2C_CLASS_DDC;
 	cfb->ddc_adapter.algo_data	= &cfb->ddc_algo;
 	cfb->ddc_adapter.dev.parent	= cfb->fb.device;
 	cfb->ddc_algo.setsda		= cyber2000fb_ddc_setsda;
@@ -1298,7 +1305,7 @@ static int cyber2000fb_i2c_getscl(void *data)
 
 static int cyber2000fb_i2c_register(struct cfb_info *cfb)
 {
-	strscpy(cfb->i2c_adapter.name, cfb->fb.fix.id,
+	strlcpy(cfb->i2c_adapter.name, cfb->fb.fix.id,
 		sizeof(cfb->i2c_adapter.name));
 	cfb->i2c_adapter.owner = THIS_MODULE;
 	cfb->i2c_adapter.algo_data = &cfb->i2c_algo;
@@ -1494,7 +1501,7 @@ static int cyber2000fb_setup(char *options)
 		if (strncmp(opt, "font:", 5) == 0) {
 			static char default_font_storage[40];
 
-			strscpy(default_font_storage, opt + 5,
+			strlcpy(default_font_storage, opt + 5,
 				sizeof(default_font_storage));
 			default_font = default_font_storage;
 			continue;
@@ -1869,12 +1876,7 @@ static int __init cyber2000fb_init(void)
 
 #ifndef MODULE
 	char *option = NULL;
-#endif
 
-	if (fb_modesetting_disabled("CyberPro"))
-		return -ENODEV;
-
-#ifndef MODULE
 	if (fb_get_options("cyber2000fb", &option))
 		return -ENODEV;
 	cyber2000fb_setup(option);

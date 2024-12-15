@@ -16,7 +16,7 @@
 #include <asm/ptrace.h>
 
 __HEAD
-SYM_CODE_START(startup_continue)
+ENTRY(startup_continue)
 	larl	%r1,tod_clock_base
 	mvc	0(16,%r1),__LC_BOOT_CLOCK
 #
@@ -24,9 +24,7 @@ SYM_CODE_START(startup_continue)
 #
 	larl	%r14,init_task
 	stg	%r14,__LC_CURRENT
-	larl	%r15,init_thread_union+STACK_INIT_OFFSET
-	stg	%r15,__LC_KERNEL_STACK
-	brasl	%r14,sclp_early_adjust_va	# allow sclp_early_printk
+	larl	%r15,init_thread_union+THREAD_SIZE-STACK_FRAME_OVERHEAD-__PT_SIZE
 #ifdef CONFIG_KASAN
 	brasl	%r14,kasan_early_init
 #endif
@@ -36,8 +34,8 @@ SYM_CODE_START(startup_continue)
 # We returned from start_kernel ?!? PANIK
 #
 	basr	%r13,0
-	lpswe	dw_psw-.(%r13)		# load disabled wait psw
-SYM_CODE_END(startup_continue)
+	lpswe	.Ldw-.(%r13)		# load disabled wait psw
 
 	.align	16
-SYM_DATA_LOCAL(dw_psw,	.quad 0x0002000180000000,0x0000000000000000)
+.LPG1:
+.Ldw:	.quad	0x0002000180000000,0x0000000000000000

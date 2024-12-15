@@ -75,7 +75,8 @@ static int siw_device_register(struct siw_device *sdev, const char *name)
 		return rv;
 	}
 
-	siw_dbg(base_dev, "HWaddr=%pM\n", sdev->raw_gid);
+	siw_dbg(base_dev, "HWaddr=%pM\n", sdev->netdev->dev_addr);
+
 	return 0;
 }
 
@@ -312,19 +313,24 @@ static struct siw_device *siw_device_create(struct net_device *netdev)
 		return NULL;
 
 	base_dev = &sdev->base_dev;
+
 	sdev->netdev = netdev;
 
-	if (netdev->addr_len) {
-		memcpy(sdev->raw_gid, netdev->dev_addr,
-		       min_t(unsigned int, netdev->addr_len, ETH_ALEN));
+	if (netdev->type != ARPHRD_LOOPBACK && netdev->type != ARPHRD_NONE) {
+		addrconf_addr_eui48((unsigned char *)&base_dev->node_guid,
+				    netdev->dev_addr);
 	} else {
 		/*
-		 * This device does not have a HW address, but
-		 * connection mangagement requires a unique gid.
+		 * This device does not have a HW address,
+		 * but connection mangagement lib expects gid != 0
 		 */
-		eth_random_addr(sdev->raw_gid);
+		size_t len = min_t(size_t, strlen(base_dev->name), 6);
+		char addr[6] = { };
+
+		memcpy(addr, base_dev->name, len);
+		addrconf_addr_eui48((unsigned char *)&base_dev->node_guid,
+				    addr);
 	}
-	addrconf_addr_eui48((u8 *)&base_dev->node_guid, sdev->raw_gid);
 
 	base_dev->uverbs_cmd_mask |= BIT_ULL(IB_USER_VERBS_CMD_POST_SEND);
 

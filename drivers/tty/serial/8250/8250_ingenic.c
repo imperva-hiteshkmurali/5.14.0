@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/serial_8250.h>
 #include <linux/serial_core.h>
@@ -53,7 +54,7 @@ static void early_out(struct uart_port *port, int offset, uint8_t value)
 
 static void ingenic_early_console_putc(struct uart_port *port, unsigned char c)
 {
-	u16 lsr;
+	uint8_t lsr;
 
 	do {
 		lsr = early_in(port, UART_LSR);
@@ -86,7 +87,7 @@ static void __init ingenic_early_console_setup_clock(struct earlycon_device *dev
 	dev->port.uartclk = be32_to_cpup(prop);
 }
 
-static int __init ingenic_earlycon_setup_tail(struct earlycon_device *dev,
+static int __init ingenic_early_console_setup(struct earlycon_device *dev,
 					      const char *opt)
 {
 	struct uart_port *port = &dev->port;
@@ -101,6 +102,8 @@ static int __init ingenic_earlycon_setup_tail(struct earlycon_device *dev,
 
 		uart_parse_options(opt, &baud, &parity, &bits, &flow);
 	}
+
+	ingenic_early_console_setup_clock(dev);
 
 	if (dev->baud)
 		baud = dev->baud;
@@ -126,35 +129,8 @@ static int __init ingenic_earlycon_setup_tail(struct earlycon_device *dev,
 	return 0;
 }
 
-static int __init ingenic_early_console_setup(struct earlycon_device *dev,
-					      const char *opt)
-{
-	ingenic_early_console_setup_clock(dev);
-
-	return ingenic_earlycon_setup_tail(dev, opt);
-}
-
-static int __init jz4750_early_console_setup(struct earlycon_device *dev,
-					     const char *opt)
-{
-	/*
-	 * JZ4750/55/60 have an optional /2 divider between the EXT
-	 * oscillator and some peripherals including UART, which will
-	 * be enabled if using a 24 MHz oscillator, and disabled when
-	 * using a 12 MHz oscillator.
-	 */
-	ingenic_early_console_setup_clock(dev);
-	if (dev->port.uartclk >= 16000000)
-		dev->port.uartclk /= 2;
-
-	return ingenic_earlycon_setup_tail(dev, opt);
-}
-
 OF_EARLYCON_DECLARE(jz4740_uart, "ingenic,jz4740-uart",
 		    ingenic_early_console_setup);
-
-OF_EARLYCON_DECLARE(jz4750_uart, "ingenic,jz4750-uart",
-		    jz4750_early_console_setup);
 
 OF_EARLYCON_DECLARE(jz4770_uart, "ingenic,jz4770-uart",
 		    ingenic_early_console_setup);
@@ -170,6 +146,7 @@ OF_EARLYCON_DECLARE(x1000_uart, "ingenic,x1000-uart",
 
 static void ingenic_uart_serial_out(struct uart_port *p, int offset, int value)
 {
+	struct uart_8250_port *up = up_to_u8250p(p);
 	int ier;
 
 	switch (offset) {
@@ -191,7 +168,7 @@ static void ingenic_uart_serial_out(struct uart_port *p, int offset, int value)
 		 * If we have enabled modem status IRQs we should enable
 		 * modem mode.
 		 */
-		ier = p->serial_in(p, UART_IER);
+		ier = serial8250_in_IER(up);
 
 		if (ier & UART_IER_MSI)
 			value |= UART_MCR_MDCE | UART_MCR_FCM;
@@ -233,14 +210,16 @@ static int ingenic_uart_probe(struct platform_device *pdev)
 	struct uart_8250_port uart = {};
 	struct ingenic_uart_data *data;
 	const struct ingenic_uart_config *cdata;
+	const struct of_device_id *match;
 	struct resource *regs;
 	int irq, err, line;
 
-	cdata = of_device_get_match_data(&pdev->dev);
-	if (!cdata) {
+	match = of_match_device(of_match, &pdev->dev);
+	if (!match) {
 		dev_err(&pdev->dev, "Error: No device match found\n");
 		return -ENODEV;
 	}
+	cdata = match->data;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
@@ -352,7 +331,6 @@ static const struct ingenic_uart_config x1000_uart_config = {
 
 static const struct of_device_id of_match[] = {
 	{ .compatible = "ingenic,jz4740-uart", .data = &jz4740_uart_config },
-	{ .compatible = "ingenic,jz4750-uart", .data = &jz4760_uart_config },
 	{ .compatible = "ingenic,jz4760-uart", .data = &jz4760_uart_config },
 	{ .compatible = "ingenic,jz4770-uart", .data = &jz4760_uart_config },
 	{ .compatible = "ingenic,jz4775-uart", .data = &jz4760_uart_config },

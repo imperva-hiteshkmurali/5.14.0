@@ -13,10 +13,7 @@
 #include <linux/reboot.h>
 #include <linux/ftrace.h>
 #include <linux/debug_locks.h>
-#include <asm/guarded_storage.h>
-#include <asm/pfault.h>
 #include <asm/cio.h>
-#include <asm/fpu.h>
 #include <asm/setup.h>
 #include <asm/smp.h>
 #include <asm/ipl.h>
@@ -28,6 +25,7 @@
 #include <asm/os_info.h>
 #include <asm/set_memory.h>
 #include <asm/stacktrace.h>
+#include <asm/switch_to.h>
 #include <asm/nmi.h>
 
 typedef void (*relocate_kernel_t)(kimage_entry_t *, unsigned long);
@@ -89,7 +87,7 @@ static noinline void __machine_kdump(void *image)
 	}
 	/* Store status of the boot CPU */
 	mcesa = __va(S390_lowcore.mcesad & MCESA_ORIGIN_MASK);
-	if (cpu_has_vx())
+	if (MACHINE_HAS_VX)
 		save_vx_regs((__vector128 *) mcesa->vector_save_area);
 	if (MACHINE_HAS_GS) {
 		__ctl_store(cr2_old.val, 2, 2);

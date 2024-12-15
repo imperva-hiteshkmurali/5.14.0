@@ -24,7 +24,7 @@
 /*
  * struct dasd_information2_t
  * represents any data about the device, which is visible to userspace.
- *  including format and featueres.
+ *  including foramt and featueres.
  */
 typedef struct dasd_information2_t {
 	unsigned int devno;	    /* S/390 devno */

@@ -1,3 +1,2 @@
-#5-
-0xd0fc240c	truncate_pagecache	vmlinux	EXPORT_SYMBOL	
-
+#4-
+0xe0918c12	truncate_pagecache	vmlinux	EXPORT_SYMBOL	

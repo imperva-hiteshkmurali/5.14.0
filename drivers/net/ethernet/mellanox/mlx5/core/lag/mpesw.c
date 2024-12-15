@@ -6,7 +6,7 @@
 #include "lag/lag.h"
 #include "eswitch.h"
 #include "esw/acl/ofld.h"
-#include "lib/events.h"
+#include "lib/mlx5.h"
 
 static void mlx5_mpesw_metadata_cleanup(struct mlx5_lag *ldev)
 {
@@ -65,18 +65,14 @@ err_metadata:
 	return err;
 }
 
-#define MLX5_LAG_MPESW_OFFLOADS_SUPPORTED_PORTS 4
 static int enable_mpesw(struct mlx5_lag *ldev)
 {
 	struct mlx5_core_dev *dev0 = ldev->pf[MLX5_LAG_P1].dev;
+	struct mlx5_core_dev *dev1 = ldev->pf[MLX5_LAG_P2].dev;
 	int err;
-	int i;
 
 	if (ldev->mode != MLX5_LAG_MODE_NONE)
 		return -EINVAL;
-
-	if (ldev->ports > MLX5_LAG_MPESW_OFFLOADS_SUPPORTED_PORTS)
-		return -EOPNOTSUPP;
 
 	if (mlx5_eswitch_mode(dev0) != MLX5_ESWITCH_OFFLOADS ||
 	    !MLX5_CAP_PORT_SELECTION(dev0, port_select_flow_table) ||
@@ -98,11 +94,11 @@ static int enable_mpesw(struct mlx5_lag *ldev)
 
 	dev0->priv.flags &= ~MLX5_PRIV_FLAGS_DISABLE_IB_ADEV;
 	mlx5_rescan_drivers_locked(dev0);
-	for (i = 0; i < ldev->ports; i++) {
-		err = mlx5_eswitch_reload_ib_reps(ldev->pf[i].dev->priv.eswitch);
-		if (err)
-			goto err_rescan_drivers;
-	}
+	err = mlx5_eswitch_reload_reps(dev0->priv.eswitch);
+	if (!err)
+		err = mlx5_eswitch_reload_reps(dev1->priv.eswitch);
+	if (err)
+		goto err_rescan_drivers;
 
 	return 0;
 
@@ -112,8 +108,8 @@ err_rescan_drivers:
 	mlx5_deactivate_lag(ldev);
 err_add_devices:
 	mlx5_lag_add_devices(ldev);
-	for (i = 0; i < ldev->ports; i++)
-		mlx5_eswitch_reload_ib_reps(ldev->pf[i].dev->priv.eswitch);
+	mlx5_eswitch_reload_reps(dev0->priv.eswitch);
+	mlx5_eswitch_reload_reps(dev1->priv.eswitch);
 	mlx5_mpesw_metadata_cleanup(ldev);
 	return err;
 }
@@ -129,14 +125,9 @@ static void disable_mpesw(struct mlx5_lag *ldev)
 static void mlx5_mpesw_work(struct work_struct *work)
 {
 	struct mlx5_mpesw_work_st *mpesww = container_of(work, struct mlx5_mpesw_work_st, work);
-	struct mlx5_devcom_comp_dev *devcom;
 	struct mlx5_lag *ldev = mpesww->lag;
 
-	devcom = mlx5_lag_get_devcom_comp(ldev);
-	if (!devcom)
-		return;
-
-	mlx5_devcom_comp_lock(devcom);
+	mlx5_dev_list_lock();
 	mutex_lock(&ldev->lock);
 	if (ldev->mode_changes_in_progress) {
 		mpesww->result = -EAGAIN;
@@ -149,7 +140,7 @@ static void mlx5_mpesw_work(struct work_struct *work)
 		disable_mpesw(ldev);
 unlock:
 	mutex_unlock(&ldev->lock);
-	mlx5_devcom_comp_unlock(devcom);
+	mlx5_dev_list_unlock();
 	complete(&mpesww->comp);
 }
 

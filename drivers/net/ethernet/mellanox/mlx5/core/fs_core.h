@@ -181,7 +181,7 @@ struct mlx5_flow_rule {
 
 struct mlx5_flow_handle {
 	int num_rules;
-	struct mlx5_flow_rule *rule[] __counted_by(num_rules);
+	struct mlx5_flow_rule *rule[];
 };
 
 /* Type of children is mlx5_flow_group */
@@ -302,8 +302,7 @@ void mlx5_fc_update_sampling_interval(struct mlx5_core_dev *dev,
 const struct mlx5_flow_cmds *mlx5_fs_cmd_get_fw_cmds(void);
 
 int mlx5_flow_namespace_set_peer(struct mlx5_flow_root_namespace *ns,
-				 struct mlx5_flow_root_namespace *peer_ns,
-				 u16 peer_vhca_id);
+				 struct mlx5_flow_root_namespace *peer_ns);
 
 int mlx5_flow_namespace_set_mode(struct mlx5_flow_namespace *ns,
 				 enum mlx5_flow_steering_mode mode);
